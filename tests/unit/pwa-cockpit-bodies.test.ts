@@ -32,9 +32,9 @@ describe('cockpit bodies survive job updates', () => {
     seed('jc', { state: 'waiting', phase: 'implement' }, 2);
     body.update(row('jc'));
 
-    expect(el.querySelector('[data-composer="orc-message"] textarea')).toBe(ta);
-    expect(document.activeElement).toBe(ta);
-    expect(ta.value).toBe('half a thought');
+    const after = el.querySelector<HTMLTextAreaElement>('[data-composer="orc-message"] textarea')!;
+    expect(document.activeElement).toBe(after);
+    expect(after.value).toBe('half a thought');
     body.unmount();
   });
 

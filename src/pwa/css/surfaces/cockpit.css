@@ -156,6 +156,10 @@ html[data-layout="mobile"] .cockpit-group:first-child { margin-top: 0; }
 .ckb-body .ckb-session { height: 40vh; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r-container); overflow: hidden; }
 .ckb-failure { border-left: 3px solid var(--danger); background: var(--danger-soft); color: var(--text); padding: var(--gap-2) var(--gap-3); border-radius: 0 var(--r-control) var(--r-control) 0; font-size: 13px; line-height: 1.5; }
 .ckb-tl { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto auto; gap: var(--gap-2) var(--gap-3); align-items: center; font-size: 13px; }
+/* Tracked's step card, shifted so its 20px dot centres on the one-line rows' 8px dots. */
+.ckb-tl-current { grid-column: 1 / -1; margin: var(--gap-2) 0; }
+.ckb-tl-current .tl-step { margin-left: 3px; padding-bottom: 0; border-left-color: transparent; }
+.ckb-tl-current .tl-content { padding-left: 11px; }
 .ckb-tl-sub { grid-column: 2 / -1; margin-top: calc(-1 * var(--gap-1)); font-size: 12px; color: var(--text-mute); }
 .ckb-tl-age { font-size: 12px; color: var(--text-mute); font-variant-numeric: tabular-nums; text-align: right; }
 .ckb-body-actions { display: flex; gap: var(--gap-2); flex-wrap: wrap; align-items: center; }

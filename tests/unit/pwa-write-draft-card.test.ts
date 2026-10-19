@@ -52,7 +52,7 @@ describe('renderWriteDraft — untrusted-content escaping', () => {
 });
 
 // A `files` entry is drafted content the user can edit before accepting — it must render as its
-// own textarea, keyed so detail.js's generic `.wd-card [id^="wd-f-"]` snapshotUi/restoreUi
+// own textarea, keyed so repaint-ui.js's generic `.wd-card [id^="wd-f-"]` snapshotUi/restoreUi
 // (keyed on data-call-idx + data-arg-key) preserves an in-progress edit across a store-driven
 // repaint, exactly like every other draft field. Without the right id/data-* shape here, an
 // edit silently reverts the next time the surrounding step repaints — the same class of bug

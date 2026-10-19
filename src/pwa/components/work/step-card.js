@@ -313,7 +313,7 @@ export function renderTimelineStep(job, s, index, groupPos, opts = {}) {
   // Findings are the long tail of a step — collapse them once the step is done so
   // the timeline reads as a compact list of names/descriptions, expandable on demand.
   // Live/failed steps stay open (you're actively reading the result). Native
-  // <details>; open state survives repaints via detail.js's snapshotUi.
+  // <details>; open state survives repaints via repaint-ui.js's snapshotUi.
   const findingsOpen = s.state !== 'resolved';
   const groupAttr = groupPos ? ` data-group-pos="${groupPos}"` : '';
   // An orchestrated step's session mount is rendered by the card itself, so its composer can

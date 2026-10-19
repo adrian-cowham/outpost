@@ -274,5 +274,7 @@ export function sessionsShownInBody(row, mode) {
   if (row.kind === 'job' && mode === 'action') {
     return row.actions.filter((a) => a.kind === 'driven').map((a) => a.sessionId);
   }
+  // The caret body's step card carries the step's own feeds; only the planner's stays on the row.
+  if (row.kind === 'job') return row.feeds.filter((f) => f.stepId).map((f) => f.sessionId);
   return [];
 }

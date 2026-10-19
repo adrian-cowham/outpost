@@ -1979,7 +1979,7 @@ a.thread-loc:hover { text-decoration: underline; }
 /* Per-step findings collapse — the findings box (.plan-findings) is a <details>
    in the timeline (.tl-findings). Collapsed, only the "Findings ▾" summary shows,
    so the step reads as name + description + inline feed; expanded reveals the
-   output. Native disclosure; open state persists via detail.js's snapshotUi. */
+   output. Native disclosure; open state persists via repaint-ui.js's snapshotUi. */
 .tl-findings > summary {
   list-style: none; cursor: pointer; user-select: none;
   display: flex; align-items: center; gap: 8px;

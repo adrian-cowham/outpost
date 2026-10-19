@@ -176,9 +176,12 @@ describe('sessionsShownInBody', () => {
     expect(sessionsShownInBody({ kind: 'session', id: 'm', actions: [] }, 'caret')).toEqual(['m']);
   });
   it('a job action body shows driven sessions', () => {
-    const row = { kind: 'job', id: 'j', actions: [{ kind: 'driven', sessionId: 'x' }, { kind: 'gate' }] };
+    const row = { kind: 'job', id: 'j', actions: [{ kind: 'driven', sessionId: 'x' }, { kind: 'gate' }], feeds: [] };
     expect(sessionsShownInBody(row, 'action')).toEqual(['x']);
-    expect(sessionsShownInBody(row, 'caret')).toEqual([]);
     expect(sessionsShownInBody(row, null)).toEqual([]);
+  });
+  it('a job caret body takes over its steps’ feeds but leaves the planner’s on the row', () => {
+    const row = { kind: 'job', id: 'j', actions: [], feeds: [{ sessionId: 'o', stepId: null }, { sessionId: 's', stepId: 'st' }] };
+    expect(sessionsShownInBody(row, 'caret')).toEqual(['s']);
   });
 });

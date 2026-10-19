@@ -97,60 +97,73 @@ function stepForSession(job, sessionId) {
   return null; // edit-queue sessions render as bare tails — no step chrome to attach
 }
 
+// One reconciler per rendered tree, so two surfaces showing the same job (Tracked and a cockpit
+// row) never unmount each other's feeds.
+export function createInlineMounts() {
+  const existing = new Map();
+  return {
+    sync(root, job) {
+      const seen = new Set();
+      // Per-session liveness, re-read on every sync. A job serialized without `live` at all
+      // (nothing does today, but the field is derived rather than persisted) falls back to
+      // "everything is live", which is the pre-existing behaviour: show the transcript tail.
+      const liveIds = job.live ? new Set(job.live.sessionIds ?? []) : null;
+      const isLive = (id) => (liveIds ? liveIds.has(id) : true);
+      // A driven session gets the full session view (transcript + composer + mode selector) in
+      // place of the two-line tail — see wheel-toggle.js.
+      const drivenIds = new Set(job.live?.interactiveSessionIds ?? []);
+      // The user's own session on a parked wait — never daemon-driven, and possibly not spawned
+      // yet, so its first attach needs the cwd.
+      const waitCwds = new Map();
+      for (const s of job.steps ?? []) {
+        const wait = inlineWaitSession(s);
+        if (wait) waitCwds.set(wait.id, wait.cwd);
+      }
+
+      root.querySelectorAll('[data-session-id]').forEach((el) => {
+        const sessionId = el.getAttribute('data-session-id');
+        if (!sessionId) return;
+        seen.add(sessionId);
+        const step = stepForSession(job, sessionId);
+        const live = isLive(sessionId);
+        const driven = drivenIds.has(sessionId) || waitCwds.has(sessionId);
+        const prior = existing.get(sessionId);
+        // A change in driven-ness changes WHICH component owns the element, so it can't be an
+        // update — tear the old one down and mount the other.
+        if (prior && prior.el === el && prior.driven === driven) {
+          prior.handle.updateStep?.(step, live);
+          return;
+        }
+        if (prior) prior.handle.unmount();
+        const handle = driven
+          ? mountSessionView(el, sessionId, { jobId: job.id, cwd: waitCwds.get(sessionId) })
+          : mountInlineSession(el, sessionId, { jobId: job.id, step, live });
+        existing.set(sessionId, { el, handle, driven });
+      });
+
+      for (const [sessionId, entry] of Array.from(existing.entries())) {
+        if (!seen.has(sessionId)) {
+          entry.handle.unmount();
+          existing.delete(sessionId);
+        }
+      }
+      return existing.size;
+    },
+    teardown() {
+      for (const entry of existing.values()) entry.handle.unmount();
+      existing.clear();
+    },
+  };
+}
+
 export function syncInlineMounts(root, job) {
-  const existing = mountsByJob.get(job.id) ?? new Map();
-  const seen = new Set();
-  // Per-session liveness, re-read on every sync. A job serialized without `live` at all
-  // (nothing does today, but the field is derived rather than persisted) falls back to
-  // "everything is live", which is the pre-existing behaviour: show the transcript tail.
-  const liveIds = job.live ? new Set(job.live.sessionIds ?? []) : null;
-  const isLive = (id) => (liveIds ? liveIds.has(id) : true);
-  // A driven session gets the full session view (transcript + composer + mode selector) in
-  // place of the two-line tail — see wheel-toggle.js.
-  const drivenIds = new Set(job.live?.interactiveSessionIds ?? []);
-  // The user's own session on a parked wait — never daemon-driven, and possibly not spawned
-  // yet, so its first attach needs the cwd.
-  const waitCwds = new Map();
-  for (const s of job.steps ?? []) {
-    const wait = inlineWaitSession(s);
-    if (wait) waitCwds.set(wait.id, wait.cwd);
-  }
-
-  root.querySelectorAll('[data-session-id]').forEach((el) => {
-    const sessionId = el.getAttribute('data-session-id');
-    if (!sessionId) return;
-    seen.add(sessionId);
-    const step = stepForSession(job, sessionId);
-    const live = isLive(sessionId);
-    const driven = drivenIds.has(sessionId) || waitCwds.has(sessionId);
-    const prior = existing.get(sessionId);
-    // A change in driven-ness changes WHICH component owns the element, so it can't be an
-    // update — tear the old one down and mount the other.
-    if (prior && prior.el === el && prior.driven === driven) {
-      prior.handle.updateStep?.(step, live);
-      return;
-    }
-    if (prior) prior.handle.unmount();
-    const handle = driven
-      ? mountSessionView(el, sessionId, { jobId: job.id, cwd: waitCwds.get(sessionId) })
-      : mountInlineSession(el, sessionId, { jobId: job.id, step, live });
-    existing.set(sessionId, { el, handle, driven });
-  });
-
-  for (const [sessionId, entry] of Array.from(existing.entries())) {
-    if (!seen.has(sessionId)) {
-      entry.handle.unmount();
-      existing.delete(sessionId);
-    }
-  }
-  if (existing.size === 0) mountsByJob.delete(job.id);
-  else mountsByJob.set(job.id, existing);
+  const mounts = mountsByJob.get(job.id) ?? createInlineMounts();
+  if (mounts.sync(root, job) === 0) mountsByJob.delete(job.id);
+  else mountsByJob.set(job.id, mounts);
 }
 
 export function teardownInlineMounts(jobId) {
-  const map = mountsByJob.get(jobId);
-  if (!map) return;
-  for (const entry of map.values()) entry.handle.unmount();
+  mountsByJob.get(jobId)?.teardown();
   mountsByJob.delete(jobId);
 }
 
