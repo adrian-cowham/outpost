@@ -12,7 +12,7 @@
 //   {"_marker":"wait-for-input"} — pause until the next newline-terminated chunk arrives on stdin
 //   {"_marker":"exit"}            — exit immediately (skip any remaining fixture lines)
 
-import { readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 const argv = process.argv.slice(2);
@@ -62,12 +62,25 @@ if (!fixturePath) {
 const lines = readFileSync(fixturePath, 'utf8').split('\n').filter(Boolean);
 const delayMs = Number(process.env.OUTPOST_TEST_DELAY_MS ?? 5);
 
+// OUTPOST_TEST_STDIN_LOG: append every line received on stdin, so a test can assert on
+// exactly what the daemon wrote to claude.
+const stdinLog = process.env.OUTPOST_TEST_STDIN_LOG;
+
 process.stdin.setEncoding('utf8');
 const stdinQueue = [];
 let stdinResolver = null;
+// A long line (a message carrying a photo) arrives over several chunks; only a newline ends
+// it, or one message would count as several inputs.
+let partial = '';
 process.stdin.on('data', (chunk) => {
-  for (const line of chunk.split('\n')) if (line) stdinQueue.push(line);
-  if (stdinResolver) { const r = stdinResolver; stdinResolver = null; r(); }
+  const parts = (partial + chunk).split('\n');
+  partial = parts.pop();
+  for (const line of parts) {
+    if (!line) continue;
+    stdinQueue.push(line);
+    if (stdinLog) appendFileSync(stdinLog, line + '\n');
+  }
+  if (stdinQueue.length && stdinResolver) { const r = stdinResolver; stdinResolver = null; r(); }
 });
 
 async function readStdinLine() {

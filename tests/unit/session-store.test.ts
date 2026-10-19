@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, utimesSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SessionStore } from '../../src/session/session-store.js';
@@ -203,6 +203,40 @@ describe('SessionStore', () => {
       ['user', 'also lint'],
       ['assistant', 'done, and linted'],
     ]);
+  });
+
+  it('counts the photos a user attached, without carrying their bytes', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sstest-images-root-'));
+    const proj = join(root, '-test-images');
+    mkdirSync(proj);
+    const img = { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'AAAA' } };
+    writeFileSync(
+      join(proj, 'sess-eeeeeeee.jsonl'),
+      JSON.stringify({ type: 'user', cwd: tmpdir(), message: { content: [img, img, { type: 'text', text: 'which is better?' }] } }) + '\n' +
+      JSON.stringify({ type: 'user', message: { content: [img] } }) + '\n' +
+      // An image Read returned nests inside its tool_result — not something the user sent.
+      JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: [img] }] } }) + '\n',
+    );
+    const msgs = new SessionStore({ root }).readMessages('sess-eeeeeeee');
+    expect(msgs).toEqual([
+      { role: 'user', text: 'which is better?', images: 2 },
+      { role: 'user', text: '', images: 1 },
+    ]);
+  });
+
+  it("removes the session's uploads along with it, and no other session's", () => {
+    const root = mkdtempSync(join(tmpdir(), 'sstest-del-root-'));
+    const runtimeDir = mkdtempSync(join(tmpdir(), 'sstest-del-runtime-'));
+    const proj = join(root, '-test-del');
+    mkdirSync(proj);
+    writeFileSync(join(proj, 'sess-gone.jsonl'), JSON.stringify({ type: 'user', cwd: tmpdir(), message: { content: 'hi' } }) + '\n');
+    for (const id of ['sess-gone', 'sess-kept']) {
+      mkdirSync(join(runtimeDir, 'uploads', id), { recursive: true });
+      writeFileSync(join(runtimeDir, 'uploads', id, '1-0-report.pdf'), '%PDF');
+    }
+    expect(new SessionStore({ root, runtimeDir }).delete('sess-gone')).toBe(true);
+    expect(existsSync(join(runtimeDir, 'uploads', 'sess-gone'))).toBe(false);
+    expect(existsSync(join(runtimeDir, 'uploads', 'sess-kept', '1-0-report.pdf'))).toBe(true);
   });
 
   it('extracts cwd from the first jsonl line in a project dir', () => {

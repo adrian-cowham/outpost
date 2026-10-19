@@ -16,6 +16,7 @@ import {
 } from '../tool-use-tile.js';
 import { askMsgHtml } from '../ask-flow.js';
 import { isDiffReviewMessage, parseDiffReviewMessage } from '../diff-review-format.js';
+import { splitAttachedFiles } from '../../utils/attachments.js';
 
 const ROLE_LABELS = { user: 'You', assistant: 'Assistant', error: 'Error', archived: 'Archived' };
 const SHELL_TOOLS = new Set(['Bash', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'Skill', 'ToolSearch']);
@@ -177,9 +178,12 @@ export function minimalMsgHtml(m, expandedTools, ctx) {
   }
 
   let text = m.text ?? '';
+  let attachments = '';
   if (m.role === 'user' && typeof text === 'string') {
-    text = stripCommandScaffolding(text);
-    if (!text) return '';
+    const split = splitAttachedFiles(stripCommandScaffolding(text));
+    text = split.text;
+    attachments = userAttachmentsHtml(m, split.files);
+    if (!text && !attachments) return '';
     if (isDiffReviewMessage(text)) return diffReviewTileHtml(text);
   }
 
@@ -189,5 +193,23 @@ export function minimalMsgHtml(m, expandedTools, ctx) {
     ? `<button class="msg-action" type="button" data-msg-action="reopen">Reopen</button>`
     : '';
   const pending = m.__pending ? ' is-pending' : '';
-  return `<div class="msg ${escapeHtml(m.role)}${pending}"><span class="role">${escapeHtml(label)}</span><span class="body-text">${body}</span>${action}</div>`;
+  return `<div class="msg ${escapeHtml(m.role)}${pending}"><span class="role">${escapeHtml(label)}</span><span class="body-text">${attachments}${body}</span>${action}</div>`;
+}
+
+const PREVIEW_URL = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/;
+
+// Live entries carry this device's thumbnails; one rebuilt from disk has only a photo count
+function userAttachmentsHtml(m, savedFiles) {
+  const items = [];
+  const live = Array.isArray(m.attachments) ? m.attachments : [];
+  for (const a of live) {
+    if (a.kind === 'image' && typeof a.preview === 'string' && PREVIEW_URL.test(a.preview)) {
+      items.push(`<img class="msg-attachment-thumb" src="${escapeHtml(a.preview)}" alt="${escapeHtml(a.name ?? 'photo')}">`);
+    }
+  }
+  const photos = m.images ?? 0;
+  if (photos > 0) items.push(`<span class="msg-attachment-chip">📷 ${photos} photo${photos === 1 ? '' : 's'}</span>`);
+  const files = [...live.filter((a) => a.kind === 'file'), ...savedFiles];
+  for (const f of files) items.push(`<span class="msg-attachment-chip">📄 ${escapeHtml(f.name ?? 'file')}</span>`);
+  return items.length ? `<span class="msg-attachments">${items.join('')}</span>` : '';
 }

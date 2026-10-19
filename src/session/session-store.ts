@@ -1,4 +1,5 @@
-import { readdirSync, readFileSync, statSync, unlinkSync, openSync, readSync, closeSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync, unlinkSync, openSync, readSync, closeSync, writeFileSync, mkdirSync, renameSync, rmSync } from 'node:fs';
+import { uploadsRootFor } from './attachments.js';
 import { join } from 'node:path';
 import { LineParser } from './stream-json.js';
 import { splitBashBlocks } from './shell-exec.js';
@@ -82,6 +83,8 @@ export interface TranscriptMessage {
   // the rejection frame visible after a disk-side transcript rebuild.
   decision?: 'allow' | 'deny';
   rejectReason?: string;
+  // Photos the user attached — a count, so history loads don't ship the image bytes back
+  images?: number;
 }
 
 // Tools whose tool_result we surface (instead of dropping) because the PWA renders the pair specially.
@@ -341,6 +344,14 @@ function extractTranscriptMessages(obj: unknown, taskToolUseIds: Set<string>): T
       if (!text) continue;
       parts.push({ role: 'tool_result', text, toolUseId: useId });
     }
+  }
+  // A top-level image block in a user record is one the user attached (a Read of an image
+  // nests inside its tool_result instead).
+  const images = o.type === 'user' ? content.filter((b) => b.type === 'image').length : 0;
+  if (images > 0) {
+    const first = parts.find((p) => p.role === 'user');
+    if (first) first.images = images;
+    else parts.unshift({ role: 'user', text: '', images });
   }
   return parts;
 }
@@ -955,6 +966,7 @@ export class SessionStore {
       unlinkSync(path);
       try { unlinkSync(join(found.projectDir, `${id}.title`)); } catch { /* no sidecar */ }
       if (this.sessionMetaDir) { try { unlinkSync(join(this.sessionMetaDir, `${id}.json`)); } catch { /* no sidecar */ } }
+      if (this.runtimeDir) rmSync(join(uploadsRootFor(this.runtimeDir), id), { recursive: true, force: true });
       return true;
     } catch {
       return false;

@@ -47,6 +47,7 @@ import { loadEnvFile } from './env-file.js';
 import { parseJsonObject } from './routes/util.js';
 import { parseDraftCalls, draftNotificationTag, type DraftRaisedBy } from './work/write-draft.js';
 import { handleNotificationsMessage, handleSessionMessage } from './ws/client-messages.js';
+import { uploadsRootFor } from './session/attachments.js';
 import { registerGitRoutes } from './routes/git.js';
 import { registerJobsRoutes } from './routes/jobs.js';
 import { registerSessionsRoutes } from './routes/sessions.js';
@@ -1513,6 +1514,8 @@ async function main() {
       try {
         handleSessionMessage(raw, sessionId, {
           queue, manager, modes, shell: sessionShell, log: (l) => console.log(l),
+          uploadsRoot: uploadsRootFor(RUNTIME_DIR),
+          reply: (m) => ws.send(JSON.stringify(m)),
           onUserMessage: (id) => { const jobId = engine.jobIdForSession(id); if (jobId) engine.markEngaged(jobId); },
         });
       } catch (e) {

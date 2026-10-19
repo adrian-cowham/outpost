@@ -3,6 +3,7 @@ import { createServer as createHttpServer, type Server as HttpServer } from 'nod
 import { readFileSync } from 'node:fs';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { IncomingMessage, ServerResponse } from 'node:http';
+import { MAX_USER_MESSAGE_FRAME_BYTES } from './session/attachments.js';
 
 export interface HttpsListenerOpts {
   certPath: string;
@@ -52,8 +53,9 @@ export class Server {
         )
       : null;
 
-    // One WebSocketServer shared across both listeners.
-    this.wss = new WebSocketServer({ noServer: true });
+    // One WebSocketServer shared across both listeners. A frame past maxPayload closes the socket
+    // (1009) before any handler can answer, so it's sized to the largest message we accept.
+    this.wss = new WebSocketServer({ noServer: true, maxPayload: MAX_USER_MESSAGE_FRAME_BYTES });
     const upgrade = (req: IncomingMessage, socket: import('node:net').Socket, head: Buffer) => {
       this.wss.handleUpgrade(req, socket, head, (ws) => this.wss.emit('connection', ws, req));
     };

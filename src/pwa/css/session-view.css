@@ -386,6 +386,94 @@ html[data-layout="mobile"] .sv-composer { font-size: 16px; }
 .sv-stop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .sv-send[hidden], .sv-stop[hidden] { display: none; }
 
+/* 📎 — same footprint as Send so the row reads as one control strip. */
+.sv-attach {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  background: transparent;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-control);
+  color: var(--text-mute);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.sv-attach:active { background: var(--bg-elev); }
+.sv-attach:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Pending attachments, above the composer row. Scrolls sideways rather than
+   growing the composer when there are many. */
+.sv-attachments {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 10px 14px 0;
+  border-top: 1px solid var(--line-soft);
+}
+.sv-attachments[hidden] { display: none; }
+.sv-attachments + .sv-composer-row { border-top: none; }
+.sv-attachment {
+  position: relative;
+  flex: 0 0 auto;
+  height: 56px;
+  min-width: 56px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-control);
+  background: var(--bg-elev);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.sv-attachment img { height: 100%; width: auto; max-width: 112px; object-fit: cover; display: block; }
+.sv-attachment-file {
+  padding: 0 28px 0 10px;
+  max-width: 180px;
+  font-size: 12px;
+  color: var(--text-mute);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sv-attachment-busy { color: var(--text-dim); font-size: 18px; }
+.sv-attachment-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 14px;
+  line-height: 22px;
+  cursor: pointer;
+  padding: 0;
+}
+.sv-attachment-error { align-self: center; font-size: 12px; color: var(--danger); }
+
+/* Attachments inside a sent user message. */
+.msg-attachments { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; margin-bottom: 6px; }
+.msg-attachments:last-child { margin-bottom: 0; }
+.msg-attachment-thumb {
+  height: 96px;
+  max-width: 160px;
+  object-fit: cover;
+  border-radius: var(--r-control);
+  border: 1px solid var(--line-soft);
+}
+.msg-attachment-chip {
+  font-size: 12px;
+  color: var(--text-mute);
+  background: var(--bg-elev);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-control);
+  padding: 3px 8px;
+}
+
 /* Muted pending state for user messages that we appended locally before the
    server round-trip echoes them back. */
 .msg.is-pending .body-text { opacity: 0.6; }
