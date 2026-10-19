@@ -282,4 +282,16 @@ describe('WorkEngine.onControllerTurnEnded — an inbox item pushed mid-turn', (
     expect(step().state).toBe('running');
     expect(step().lastDelivered?.map((i) => i.kind)).toEqual(['external']);
   });
+
+  it('redeliverParked recovers a held batch whose wake was never armed', async () => {
+    working.add('sess-1');
+    engine.pushStepInbox(jobId, stepId, { kind: 'external', source: 'pr-watcher', summary: 'review approved', events: ['ci'] });
+    working.delete('sess-1');                     // no turn-end ever reports it
+    await vi.advanceTimersByTimeAsync(EXTERNAL_QUIET_MS);
+    expect(step().state).toBe('waiting');
+    engine.redeliverParked();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(step().state).toBe('running');
+    expect(resumed.map((r) => r.sessionId)).toEqual(['sess-1']);
+  });
 });

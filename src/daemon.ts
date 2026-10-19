@@ -641,7 +641,11 @@ async function main() {
     mcpConfigPath,
     notify: (payload) => { void pushSender.send(payload); },
   }).runOnce());
-  nativeHandlers.register('pr-watcher', () => prWatcher.runOnce());
+  nativeHandlers.register('pr-watcher', async () => {
+    const result = await prWatcher.runOnce();
+    engine.redeliverParked();
+    return result;
+  });
   nativeHandlers.register('user-prs-watcher', () => userPrsWatcher.runOnce());
   const reviewIntake = new ReviewIntake({
     settings: () => preferencesStore.getPrReviewIntake(),

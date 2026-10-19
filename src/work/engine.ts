@@ -974,6 +974,18 @@ export class WorkEngine {
     this.opts.governor?.turnEnded(sessionId);
   }
 
+  // A quiet PR pushes nothing, so a held batch whose one-shot timer was lost would otherwise sit forever
+  redeliverParked(): void {
+    for (const j of this.opts.queue.list()) {
+      if (!this.jobAcceptsStepWork(j.id)) continue;
+      for (const s of j.steps) {
+        if (s.type !== 'orchestrated' || s.cancelled || s.failure || s.state !== 'waiting' || !s.inbox.length) continue;
+        if (s.sessionId && this.opts.interactive?.isInteractive(s.sessionId)) continue;
+        deliverInbox(this.orchestratedHost(), j.id, s.id);
+      }
+    }
+  }
+
   // Re-runs delivery at a controller's turn end: deliverInbox neither delivers nor arms a hold mid-turn
   onControllerTurnEnded(sessionId: string): void {
     const role = this.roleBySession.get(sessionId);
@@ -1478,9 +1490,8 @@ export class WorkEngine {
 
   // Re-run delivery once a step's external quiet period lapses. Ticking the job is enough: the
   // orchestrated handler's decide() re-asks shouldDeliver and returns deliver-inbox when the hold
-  // has expired, so this needs no state beyond the timer itself. Like the soak timers, these do
-  // not survive a restart — a held batch is then re-armed by whatever poll or resume comes next,
-  // and the watcher sweep is on a 5-minute cron, so nothing strands for long.
+  // has expired, so this needs no state beyond the timer itself. A timer lost to a restart, or
+  // never armed, is covered by redeliverParked on the next watcher sweep.
   private scheduleDelivery(jobId: string, stepId: string, at: number): void {
     const key = `${jobId}:${stepId}`;
     const existing = this.deliveryTimers.get(key);
