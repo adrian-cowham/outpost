@@ -27,6 +27,7 @@ export const KEYMAP_COMMANDS = [
   { id: 'diff.primaryAction', surface: 'diff', label: 'Run primary action', description: 'Run the diff overlay primary action.', defaultBinding: 'mod+enter' },
   { id: 'diff.regenerate', surface: 'diff', label: 'Regenerate commit message', description: 'Regenerate the drafted commit message.', defaultBinding: 'mod+r' },
   { id: 'diff.comment', surface: 'diff', label: 'Comment on hovered row', description: 'Open a comment on the hovered diff row (when not typing).', defaultBinding: 'c' },
+  { id: 'diff.commentExtend', surface: 'diff', label: 'Extend comment to hovered row', description: 'Extend the open comment draft to a line range ending at the hovered row.', defaultBinding: 'shift+c' },
   { id: 'cockpit.next', surface: 'cockpit', label: 'Next row', description: 'Move the cockpit highlight down.', defaultBinding: 'j' },
   { id: 'cockpit.prev', surface: 'cockpit', label: 'Previous row', description: 'Move the cockpit highlight up.', defaultBinding: 'k' },
   { id: 'cockpit.toggle', surface: 'cockpit', label: 'Expand row', description: 'Open or close the highlighted row.', defaultBinding: 'space' },

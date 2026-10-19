@@ -16,9 +16,12 @@ export const diffState = {
   mode: 'branch', // compare mode: 'branch' | 'worktree' | 'log'
   files: [],
   filter: '', // file-list search text
-  comments: new Map(), // key: `${file}:${side}:${line}` -> { file, side, line, content, lineText }
+  comments: new Map(), // key: `${file}:${side}:${line}` -> { file, side, line, content, lineText, startLine?, quote? }
   openDraftKey: null,
   collapsed: new Set(), // file paths currently collapsed in the content area
+  collapsedDirs: new Set(),
+  fullFiles: new Map(), // `${mode}:${path}` -> Promise<DiffFile|null>, the file at full context
+  draftRange: null, // { file, side, anchor, start, end, editingKey, selecting } while a comment draft is open
   hoveredRowKey: null, // last-hovered diff row key, for the 'c' keyboard shortcut
   // Cached refs per mode so the inactive pill keeps its label after switching.
   refs: {
@@ -89,6 +92,9 @@ export function resetGitState() {
   diffState.comments.clear();
   diffState.openDraftKey = null;
   diffState.collapsed.clear();
+  diffState.collapsedDirs.clear();
+  diffState.fullFiles.clear();
+  diffState.draftRange = null;
   diffState.hoveredRowKey = null;
   diffState.refs.branch = { base: '…', head: '…' };
   diffState.refs.worktree = { base: 'HEAD', head: 'working tree' };

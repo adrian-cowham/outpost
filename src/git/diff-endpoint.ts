@@ -33,6 +33,37 @@ export type DiffResponse =
     } }
   | { status: 400 | 404; body: { error: string } };
 
+export type DiffFileResponse =
+  | { status: 200; body: { file: DiffFile } }
+  | { status: 400 | 404; body: { error: string } };
+
+type DiffSource =
+  | { kind: 'record'; rec: WorktreeRecord & { worktreePath: string } }
+  | { kind: 'cwd'; cwd: string }
+  | { kind: 'error'; error: string };
+
+// git clamps -U to the file's length, so this is "the whole file as context".
+const FULL_CONTEXT = 1_000_000;
+const MAX_FULL_FILE_ROWS = 50_000;
+const MAX_PATH_LEN = 4096;
+
+// Step sessions resolve via the engine first so the live step worktree wins over a session-keyed tombstone.
+function resolveDiffSource(
+  wm: WorktreeManager,
+  sessionLookup: SessionLookup,
+  sessionId: string,
+  stepLookup?: StepWorktreeLookup,
+): DiffSource {
+  const rec = stepLookup?.worktreeRecordForSession(sessionId) ?? wm.get(sessionId);
+  if (rec && rec.archivedAt) return { kind: 'error', error: 'session is archived' };
+  if (rec && rec.worktreePath) return { kind: 'record', rec: { ...rec, worktreePath: rec.worktreePath } };
+
+  const found = sessionLookup.findSession(sessionId);
+  if (!found) return { kind: 'error', error: 'no such session' };
+  if (!isGitRepoSync(found.cwd)) return { kind: 'error', error: 'session cwd is not a git repo' };
+  return { kind: 'cwd', cwd: found.cwd };
+}
+
 export function handleDiffRoute(
   wm: WorktreeManager,
   sessionLookup: SessionLookup,
@@ -44,19 +75,12 @@ export function handleDiffRoute(
     return { status: 400, body: { error: 'invalid mode' } };
   }
   const m: DiffMode = mode;
+  const src = resolveDiffSource(wm, sessionLookup, sessionId, stepLookup);
+  if (src.kind === 'error') return { status: 404, body: { error: src.error } };
 
-  // Path 1: outpost-managed worktree session. Keep the existing semantics —
-  // branch mode diffs against the stored baseBranch on the parent repo's checkout,
-  // worktree mode diffs uncommitted changes inside the worktree itself.
-  // Resolve step sessions through the engine's session→stepId→record mapping first
-  // so the live step worktree wins over a shadowing session-keyed tombstone.
-  const rec = stepLookup?.worktreeRecordForSession(sessionId) ?? wm.get(sessionId);
-  if (rec && rec.archivedAt) {
-    return { status: 404, body: { error: 'session is archived' } };
-  }
-  if (rec && rec.worktreePath) {
-    const text = runGitDiff(rec, m);
-    const allFiles = parseUnifiedDiff(text);
+  if (src.kind === 'record') {
+    const { rec } = src;
+    const allFiles = parseUnifiedDiff(runGitDiff(rec, m));
     if (m === 'worktree') {
       mergeUntrackedFiles(allFiles, rec.worktreePath);
     }
@@ -66,23 +90,47 @@ export function handleDiffRoute(
     });
   }
 
-  // Path 2: session running directly in a user repo, no worktree. Resolve the cwd
-  // from the session store; the current branch + base are detected at call time.
-  const found = sessionLookup.findSession(sessionId);
-  if (!found) return { status: 404, body: { error: 'no such session' } };
-  if (!isGitRepoSync(found.cwd)) {
-    return { status: 404, body: { error: 'session cwd is not a git repo' } };
-  }
-  const result = runGitDiffInCwd(found.cwd, m);
+  const result = runGitDiffInCwd(src.cwd, m);
   const allFiles = parseUnifiedDiff(result.text);
   if (m === 'worktree') {
-    mergeUntrackedFiles(allFiles, found.cwd);
+    mergeUntrackedFiles(allFiles, src.cwd);
   }
   return buildResponse(m, allFiles, {
     baseRef: result.baseRef,
     headRef: result.headRef,
     onBaseBranch: result.onBaseBranch,
   });
+}
+
+// handleDiffFileRoute returns one file's diff at full context, so the overlay can expand a gap without refetching the whole diff.
+export function handleDiffFileRoute(
+  wm: WorktreeManager,
+  sessionLookup: SessionLookup,
+  sessionId: string,
+  mode: string,
+  path: string | null,
+  oldPath: string | null,
+  stepLookup?: StepWorktreeLookup,
+): DiffFileResponse {
+  if (mode !== 'branch' && mode !== 'worktree') {
+    return { status: 400, body: { error: 'invalid mode' } };
+  }
+  if (!isValidPath(path) || (oldPath !== null && !isValidPath(oldPath))) {
+    return { status: 400, body: { error: 'invalid path' } };
+  }
+  const src = resolveDiffSource(wm, sessionLookup, sessionId, stepLookup);
+  if (src.kind === 'error') return { status: 404, body: { error: src.error } };
+
+  const opts = { context: FULL_CONTEXT, paths: oldPath ? [oldPath, path] : [path] };
+  const text = src.kind === 'record' ? runGitDiff(src.rec, mode, opts) : runGitDiffInCwd(src.cwd, mode, opts).text;
+  const file = parseUnifiedDiff(text, { maxRowsPerFile: MAX_FULL_FILE_ROWS }).find((f) => f.path === path);
+  if (!file) return { status: 404, body: { error: 'file not in diff' } };
+  return { status: 200, body: { file } };
+}
+
+function isValidPath(p: string | null): p is string {
+  return typeof p === 'string' && p.length > 0 && p.length <= MAX_PATH_LEN && !p.includes('\0')
+    && !p.startsWith('/') && !p.split('/').includes('..');
 }
 
 // Append untracked-file entries to the worktree-mode diff payload. `git diff HEAD`

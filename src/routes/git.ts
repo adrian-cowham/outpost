@@ -13,7 +13,7 @@ import {
 import { draftPrDescription } from '../git/pr-draft.js';
 import { reviewersForCwd } from '../git/pr-reviewers.js';
 import type { GitCommandResult } from '../git/git-ops.js';
-import { handleDiffRoute } from '../git/diff-endpoint.js';
+import { handleDiffFileRoute, handleDiffRoute } from '../git/diff-endpoint.js';
 import { DEFAULT_EDITOR_COMMAND, openInEditor } from '../git/open-in-editor.js';
 import type { PreferencesStore } from '../storage/preferences-store.js';
 import { readJsonObject } from './util.js';
@@ -89,6 +89,25 @@ export function registerGitRoutes(server: Server, deps: GitRoutesDeps): void {
     const mode = url.searchParams.get('mode') ?? 'branch';
     try {
       const result = handleDiffRoute(worktreeManager, sessionStore, m[1]!, mode, engine);
+      res.statusCode = result.status;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify(result.body));
+    } catch (err) {
+      res.statusCode = 500;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ error: (err as Error).message }));
+    }
+  });
+
+  server.route('GET', '/api/sessions/:id/diff/file', (req, res) => {
+    const url = new URL(req.url ?? '/', 'http://x');
+    const m = url.pathname.match(/^\/api\/sessions\/([\w-]+)\/diff\/file$/);
+    if (!m) { res.statusCode = 404; res.end('not found'); return; }
+    const q = url.searchParams;
+    try {
+      const result = handleDiffFileRoute(
+        worktreeManager, sessionStore, m[1]!, q.get('mode') ?? 'branch', q.get('path'), q.get('oldPath'), engine,
+      );
       res.statusCode = result.status;
       res.setHeader('content-type', 'application/json');
       res.end(JSON.stringify(result.body));

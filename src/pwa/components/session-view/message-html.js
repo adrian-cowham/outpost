@@ -85,13 +85,16 @@ function diffReviewTileHtml(text) {
   const comments = parseDiffReviewMessage(text) ?? [];
   const count = comments.length;
   const items = comments.map((c) => {
+    const lines = c.startLine ? `${c.startLine}–${c.line}` : c.line;
     const cite = c.file
-      ? `<div class="dr-cite"><span class="dr-cite-mark">§</span><span class="dr-cite-file">${escapeHtml(c.file)}</span><span class="dr-cite-sep">→</span><span class="dr-cite-line">L${escapeHtml(c.line)}</span></div>`
+      ? `<div class="dr-cite"><span class="dr-cite-mark">§</span><span class="dr-cite-file">${escapeHtml(c.file)}</span><span class="dr-cite-sep">→</span><span class="dr-cite-line">L${escapeHtml(lines)}</span></div>`
       : '';
-    const lineCls = c.mark === '-' ? 'diff-del' : 'diff-add';
-    const line = c.quote
-      ? `<div class="dr-line diff-line ${lineCls}"><span class="diff-mark">${escapeHtml(c.mark || '+')}</span><span class="diff-text">${escapeHtml(c.quote)}</span></div>`
-      : '';
+    let line = '';
+    if (c.startLine) {
+      line = `<div class="dr-quote">${c.quoteLines.map((q) => quotedLineHtml(q.mark, q.text)).join('')}</div>`;
+    } else if (c.quote) {
+      line = quotedLineHtml(c.mark || '+', c.quote);
+    }
     const note = c.note ? `<div class="dr-note">${escapeHtml(c.note)}</div>` : '';
     return `<li class="dr-item">${cite}${line}${note}</li>`;
   }).join('');
@@ -99,6 +102,12 @@ function diffReviewTileHtml(text) {
     <div class="dr-head"><span class="dr-eyebrow">Review</span><span class="dr-meta">${count} comment${count === 1 ? '' : 's'}</span></div>
     <ol class="dr-list">${items}</ol>
   </div>`;
+}
+
+function quotedLineHtml(mark, text) {
+  if (mark === '…') return `<div class="dr-quote-more">… ${escapeHtml(text)}</div>`;
+  const cls = mark === '-' ? ' diff-del' : mark === '+' ? ' diff-add' : ' diff-eq';
+  return `<div class="dr-line diff-line${cls}"><span class="diff-mark">${escapeHtml(mark)}</span><span class="diff-text">${escapeHtml(text)}</span></div>`;
 }
 
 function truncate(s, max) {

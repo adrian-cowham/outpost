@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WorktreeManager } from '../../src/git/worktree-manager.js';
-import { handleDiffRoute, type SessionLookup, type StepWorktreeLookup } from '../../src/git/diff-endpoint.js';
+import { handleDiffFileRoute, handleDiffRoute, type SessionLookup, type StepWorktreeLookup } from '../../src/git/diff-endpoint.js';
 
 const NO_SESSIONS: SessionLookup = { findSession: () => null };
 
@@ -201,5 +201,41 @@ describe('handleDiffRoute (non-worktree sessions)', () => {
     if (result.status !== 200) return;
     expect(result.body.baseRef).toBe('master');
     expect(result.body.headRef).toBe('feat/y');
+  });
+});
+
+describe('handleDiffFileRoute', () => {
+  const numbered = (n: number, edit: Record<number, string> = {}) =>
+    Array.from({ length: n }, (_, i) => edit[i + 1] ?? `line ${i + 1}`).join('\n') + '\n';
+
+  it('branch mode returns every row, numbered against the recorded base even after main moves', async () => {
+    const ctx = fresh();
+    writeFileSync(join(ctx.repo, 'a.txt'), numbered(20));
+    execFileSync('git', ['-C', ctx.repo, 'commit', '-qam', 'twenty']);
+    const rec = await ctx.wm.create({ sessionId: 'ffff6666', projectCwd: ctx.repo, baseBranch: 'main' });
+    writeFileSync(join(rec.worktreePath, 'a.txt'), numbered(20, { 3: 'THREE', 18: 'EIGHTEEN' }));
+    execFileSync('git', ['-C', rec.worktreePath, 'commit', '-qam', 'edit']);
+    writeFileSync(join(ctx.repo, 'a.txt'), 'prepended\n' + numbered(20));
+    execFileSync('git', ['-C', ctx.repo, 'commit', '-qam', 'main moves']);
+
+    const result = handleDiffFileRoute(ctx.wm, NO_SESSIONS, 'ffff6666', 'branch', 'a.txt', null);
+    expect(result.status).toBe(200);
+    if (result.status !== 200) return;
+    const rows = result.body.file.hunks.flatMap((h) => h.rows);
+    expect(rows.filter((r) => r.op !== '-')).toHaveLength(20);
+    expect(rows.find((r) => r.content === 'line 10')).toMatchObject({ op: ' ', oldLine: 10, newLine: 10 });
+  });
+
+  it('finds a renamed file through oldPath', async () => {
+    const ctx = fresh();
+    const rec = await ctx.wm.create({ sessionId: 'abab7777', projectCwd: ctx.repo, baseBranch: 'main' });
+    execFileSync('git', ['-C', rec.worktreePath, 'mv', 'a.txt', 'b.txt']);
+    writeFileSync(join(rec.worktreePath, 'b.txt'), 'one\ntwo\nTHREE\n');
+
+    const result = handleDiffFileRoute(ctx.wm, NO_SESSIONS, 'abab7777', 'worktree', 'b.txt', 'a.txt');
+    expect(result.status).toBe(200);
+    if (result.status !== 200) return;
+    expect(result.body.file.status).toBe('renamed');
+    expect(result.body.file.hunks.flatMap((h) => h.rows).map((r) => r.content)).toContain('one');
   });
 });
