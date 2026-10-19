@@ -348,21 +348,19 @@ html[data-layout="desktop"] .o-frame-list .o-row.lr-row[hidden] { display: none;
 }
 
 /* An orchestrated step's VOLUNTARY gate — the controller asking a question before its own
-   next move, distinct from a write-draft approval (.wd-card below). A harder stop than a
-   meta.wait soak (the move is one decision away from running), so it carries the danger
-   accent, not warn. */
+   next move. It's the operator's move, not a failure, so it's warn (DESIGN §2.2). */
 .tl-gate {
   margin: 2px 0 8px;
   padding: 8px 12px;
   font-size: 13px;
   line-height: 1.5;
-  background: var(--danger-soft, var(--bg-elev-2));
-  border-left: 2px solid var(--danger);
+  background: var(--warn-soft, var(--bg-elev-2));
+  border-left: 3px solid var(--warn);
   border-radius: 0 var(--r-control) var(--r-control) 0;
 }
 .tl-gate-head {
   font-weight: 600;
-  color: var(--danger);
+  color: var(--warn);
 }
 .tl-gate-body {
   margin-top: 8px;
@@ -1697,7 +1695,7 @@ a.thread-loc:hover { text-decoration: underline; }
 .thread-compose-input {
   width: 100%; box-sizing: border-box;
   padding: 10px 12px;
-  font-size: 14px; line-height: 1.55;
+  font-family: inherit; font-size: 14px; line-height: 1.55;
   background: var(--bg); color: var(--text);
   border: 1px solid var(--line);
   border-radius: var(--r-control);

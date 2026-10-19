@@ -54,11 +54,11 @@ function skeleton() {
 function tallyHtml(t) {
   const part = (n, glyph, label, tone) => `<span class="ckb-tally-item" data-tone="${tone}"><b>${glyph} ${n}</b> ${label}</span>`;
   return [
-    part(t.working, '◉', 'working', 'live'),
-    part(t.needYou, '●', 'need you', 'you'),
-    part(t.parked, '○', 'parked', 'mute'),
-    ...(t.failed ? [part(t.failed, '✕', 'failed', 'failed')] : []),
-  ].join('');
+    [t.working, '◉', 'working', 'live'],
+    [t.needYou, '●', 'need you', 'you'],
+    [t.parked, '○', 'parked', 'mute'],
+    [t.failed, '✕', 'failed', 'failed'],
+  ].filter(([n]) => n > 0).map((p) => part(...p)).join('');
 }
 
 function reducedMotion() {
