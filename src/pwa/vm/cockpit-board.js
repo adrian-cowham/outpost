@@ -222,7 +222,7 @@ const byTime = (a, b) => b.time - a.time;
 export function cockpitBoard({
   jobs = [], projects = [], slices = new Map(), pendingApprovals = [], localEngaged = new Map(),
   actionEdits = [], scheduleDrafts = new Map(), runs = [], autoApplied = [], openingWaits = new Set(),
-  now = Date.now(),
+  launched = new Set(), now = Date.now(),
 } = {}) {
   const started = [], notStarted = [], backlog = [];
   for (const j of jobs) {
@@ -238,6 +238,11 @@ export function cockpitBoard({
       if (s.archived || s.sessionClass === 'action' || (s.kind && s.kind !== 'normal')) continue;
       sessions.push(sessionRow(s, p.cwd, slices.get(s.id), pendingApprovals, localEngaged));
     }
+  }
+  for (const id of launched) {
+    if (sessions.some((r) => r.id === id)) continue;
+    const slice = slices.get(id);
+    sessions.push(sessionRow({ id, title: slice?.title, lastModified: now }, slice?.cwd, slice, pendingApprovals, localEngaged));
   }
   const inbox = cockpitInbox({ actionEdits, scheduleDrafts, runs, autoApplied, now });
   const other = [...inbox.decide, ...inbox.broken].filter((i) => OTHER_KINDS.has(i.kind)).map(otherRow);

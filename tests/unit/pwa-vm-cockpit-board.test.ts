@@ -155,6 +155,13 @@ describe('session rows', () => {
     expect(r.tone).toBe('idle');
     expect(r.feeds).toEqual([]);
   });
+
+  it('holds a row for a session launched here before the daemon lists it', () => {
+    const slices = new Map([['new', { cwd: '/r/outpost', title: 'Fix it' }]]);
+    const b = board({ projects: proj({}), slices, launched: new Set(['new', 'm']) });
+    expect(b.sessions.map((r: any) => r.id)).toEqual(['new', 'm']);
+    expect(b.sessions[0]).toMatchObject({ key: 'session:new', title: 'Fix it', ref: 'r/outpost' });
+  });
 });
 
 describe('ordering', () => {

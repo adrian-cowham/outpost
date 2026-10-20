@@ -15,6 +15,7 @@ import { nav } from '../../state/nav.js';
 import { engagement } from '../../state/engagement.js';
 import { cockpitLayout } from '../../state/cockpit-layout.js';
 import { expansion } from './expansion.js';
+import { launches } from './launches.js';
 import { createRow, hasOpenableAction } from './row.js';
 import { createSection } from './section.js';
 import { createColumnResizer } from './resize.js';
@@ -247,9 +248,12 @@ export function renderDetail(mount) {
       scheduleDrafts: schedulesStore.get().draftBySession,
       runs: runs.get().runs,
       openingWaits: work.get().openingWaits,
+      launched: launches.get(),
       now,
     });
     lastBoard = board;
+    const listed = new Set((sessions.get().projects ?? []).flatMap((p) => (p.sessions ?? []).map((s) => s.id)));
+    for (const id of launches.get()) if (listed.has(id)) launches.drop(id);
     const layout = currentLayout();
     const resolved = resolveBoard(board, layout);
     lastResolved = resolved;
@@ -308,7 +312,15 @@ export function renderDetail(mount) {
             const mode = exp.get(key) ?? null;
             const view = { mode, selected: key === selectedKey, now, hideFeeds: sessionsShownInBody(m, mode), mountBody };
             let row = rows.get(key);
-            if (!row) { row = createRow(m, { ...rowCtx, initialView: view }); rows.set(key, row); }
+            if (!row) {
+              row = createRow(m, { ...rowCtx, initialView: view });
+              rows.set(key, row);
+              if (m.kind === 'session' && launches.get().has(m.id)) {
+                selectedKey = key;
+                const el = row.el;
+                requestAnimationFrame(() => el.scrollIntoView({ block: 'nearest' }));
+              }
+            }
             else row.update(m, view);
             return { key, node: row.el };
           }),
@@ -388,7 +400,7 @@ export function renderDetail(mount) {
   const resizer = createColumnResizer(boardEl, board);
   const dragger = installDrag(boardEl, board);
   paint();
-  const unsubs = [work, sessions, approvals, actions, schedulesStore, runs, engagement, expansion, cockpitLayout]
+  const unsubs = [work, sessions, approvals, actions, schedulesStore, runs, engagement, expansion, launches, cockpitLayout]
     .map((s) => s.subscribe(schedule));
   const uninstallKeys = installBoardKeys(root, board);
   const timer = setInterval(schedule, TIME_REFRESH_MS);

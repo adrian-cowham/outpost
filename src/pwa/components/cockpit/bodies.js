@@ -2,7 +2,7 @@
 // body is the row's full story. Both mount the same renderers Tracked and Sessions use.
 
 import { work } from '../../state/work.js';
-import { nav } from '../../state/nav.js';
+import { nav, peekSessionHint } from '../../state/nav.js';
 import { orchestratedRows } from '../../vm/tracked.js';
 import { isTerminalStep } from '../../vm/work-predicates.js';
 import { OPENABLE } from '../../vm/cockpit-board.js';
@@ -280,7 +280,8 @@ function mountCaretBody(el, model) {
 function mountSessionBody(el, model) {
   el.innerHTML = `<div class="ckb-session"></div>
     <div class="ckb-body-actions"><button type="button" class="o-btn o-btn--ghost sm" data-ckb-body="open-full">Open full ↗</button></div>`;
-  const view = mountSessionView(el.querySelector('.ckb-session'), model.id, { cwd: model.cwd, scopedHotkeys: true });
+  const ctx = peekSessionHint(model.id) ?? { cwd: model.cwd };
+  const view = mountSessionView(el.querySelector('.ckb-session'), model.id, { ...ctx, scopedHotkeys: true });
   el.querySelector('[data-ckb-body="open-full"]').addEventListener('click', (e) => {
     e.stopPropagation();
     nav.select('sessions', model.id);
