@@ -23,6 +23,10 @@ function ageText(m, now) {
   return AGED.has(m.tone) && m.time ? (relPast(m.time, now) ?? '') : '';
 }
 
+function idleArchiveLabel(m) {
+  return m.kind === 'job' ? 'Dismiss' : 'Archive';
+}
+
 export function hasOpenableAction(model) {
   return model.actions.some((a) => OPENABLE.has(a.kind));
 }
@@ -92,7 +96,8 @@ export function createRow(model, ctx) {
         ? `<button type="button" class="o-btn o-btn--default sm">${escapeHtml(m.actionLabel)}</button>`
         : '';
     }
-    dom.archive.hidden = m.kind !== 'session';
+    dom.archive.hidden = m.kind !== 'session' && !m.dismissable;
+    if (!dom.archive.disabled) dom.archive.textContent = idleArchiveLabel(m);
     dom.caret.hidden = m.kind === 'other';
     dom.caret.setAttribute('aria-expanded', String(!!view.mode));
 
@@ -117,7 +122,7 @@ export function createRow(model, ctx) {
     get model() { return current; },
     setArchiving(on, error = '') {
       dom.archive.disabled = on;
-      dom.archive.textContent = on ? 'Archiving…' : 'Archive';
+      dom.archive.textContent = on ? (current.kind === 'job' ? 'Dismissing…' : 'Archiving…') : idleArchiveLabel(current);
       archiveError = on ? '' : error;
       sig = '';
       update(current, lastView);

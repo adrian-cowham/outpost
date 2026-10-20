@@ -144,7 +144,11 @@ export class JobQueue {
   mutate(jobId: string, fn: (j: JobRecord) => JobRecord): JobRecord | undefined {
     const cur = this.index.get(jobId);
     if (!cur) return undefined;
-    const next = fn(cur);
+    let next = fn(cur);
+    if (next.dismissedAt !== undefined && next.state !== 'done' && next.state !== 'failed') {
+      const { dismissedAt: _, ...rest } = next;
+      next = rest;
+    }
     return this.upsert({ ...next, updatedAt: next.updatedAt === cur.updatedAt ? Date.now() : next.updatedAt });
   }
 

@@ -205,7 +205,7 @@ function routineFailedItems(runs) {
 
 function brokenItems({ jobs, runs }) {
   return newestFirst([
-    ...jobs.filter((j) => j.state === 'failed').map(jobFailedItem),
+    ...jobs.filter((j) => j.state === 'failed' && j.dismissedAt == null).map(jobFailedItem),
     // isTerminalJob covers 'failed', so a failed job reports itself once and its steps
     // never restate the same problem.
     ...jobs.filter((j) => !isTerminalJob(j)).flatMap(stepFailedItems),

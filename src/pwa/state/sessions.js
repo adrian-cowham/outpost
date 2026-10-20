@@ -81,6 +81,7 @@ const EMPTY_SLICE = Object.freeze(emptySlice(null));
 const initial = {
   view: 'list',
   projects: [],
+  projectsLoaded: false,
   currentSessionId: null,       // mobile-only UI pointer; desktop uses per-tab
   currentSessionCwd: null,
   currentSessionSpawnCwd: null,
@@ -266,7 +267,7 @@ export const sessions = {
   // ────────────────────────────────────────────────────────────────────
 
   setProjects(projects) {
-    store.set((s) => ({ ...s, projects }));
+    store.set((s) => ({ ...s, projects, projectsLoaded: true }));
   },
 
   // Mobile / mobile-shell UI pointer. Called when a session enters the visible

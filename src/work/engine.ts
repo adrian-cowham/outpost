@@ -823,6 +823,7 @@ export class WorkEngine {
       ...(input.preapprovals ? { preapprovals: input.preapprovals } : {}),
       ...(input.planReview ? { planReview: input.planReview } : {}),
       specGateMigrated: true,
+      dismissMigrated: true,
       state: 'planning',
       steps: [],
       events: [{ id: this.ctx.newId(), at: now, kind: 'created', who: input.source === 'linear' ? 'linear-poller' : 'user' }],
@@ -1032,6 +1033,14 @@ export class WorkEngine {
         }
       }
     }
+  }
+
+  dismissJob(jobId: string): 'ok' | 'not-found' | 'not-finished' {
+    const j = this.opts.queue.get(jobId);
+    if (!j) return 'not-found';
+    if (j.state !== 'done' && j.state !== 'failed') return 'not-finished';
+    this.mutate(jobId, (jj) => ({ ...jj, dismissedAt: this.ctx.now() }));
+    return 'ok';
   }
 
   async abandonJob(jobId: string): Promise<void> {

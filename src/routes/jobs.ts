@@ -355,6 +355,17 @@ export function registerJobsRoutes(server: Server, deps: JobsRoutesDeps): void {
     res.end(JSON.stringify({ job: jobQueue.get(m[1]!) ?? null }));
   });
 
+  server.route('POST', '/api/work/jobs/:id/dismiss', (req, res) => {
+    const m = (req.url ?? '').match(/^\/api\/work\/jobs\/([\w-]+)\/dismiss$/);
+    if (!m) { res.statusCode = 404; res.end('not found'); return; }
+    const result = engine.dismissJob(m[1]!);
+    if (result === 'not-found') { res.statusCode = 404; res.end('not found'); return; }
+    if (result === 'not-finished') { res.statusCode = 409; res.end('job is not finished'); return; }
+    res.statusCode = 200;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ job: jobQueue.get(m[1]!) ?? null }));
+  });
+
   server.route('DELETE', '/api/work/jobs/:id', async (req, res) => {
     const m = (req.url ?? '').match(/^\/api\/work\/jobs\/([\w-]+)$/);
     if (!m) { res.statusCode = 404; res.end('not found'); return; }

@@ -462,6 +462,9 @@ export interface JobRecord {
   preapprovals?: Preapprovals;
   planReview?: 'gate' | 'auto';
   specGateMigrated?: true;
+  // A done/failed job stays on the cockpit until this is set; cleared if the job leaves done/failed.
+  dismissedAt?: number;
+  dismissMigrated?: true;
   failure?: { reason: string; at: number };
   stalls?: SessionStall[];
   events?: JobEvent[];

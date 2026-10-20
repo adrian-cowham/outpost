@@ -211,3 +211,31 @@ describe('the spec-gate cutover', () => {
     expect(stamped(out)).toEqual([undefined]);
   });
 });
+
+describe('the dismissal cutover', () => {
+  const rec = (over: Partial<JobRecord>): JobRecord => ({
+    id: 'j', source: 'manual', title: 't', description: 'd', state: 'done',
+    steps: [], createdAt: 1, updatedAt: 77, ...over,
+  });
+
+  it('stamps already-finished jobs once', () => {
+    const j = migrateJob(rec({ state: 'done' }));
+    expect(j.dismissedAt).toBe(77);
+    expect(j.dismissMigrated).toBe(true);
+    expect(migrateJob(rec({ state: 'failed' })).dismissedAt).toBe(77);
+  });
+
+  it('leaves live jobs undismissed but flags them', () => {
+    const j = migrateJob(rec({ state: 'executing' }));
+    expect(j.dismissedAt).toBeUndefined();
+    expect(j.dismissMigrated).toBe(true);
+  });
+
+  it('never restamps a flagged job', () => {
+    expect(migrateJob(rec({ state: 'done', dismissMigrated: true })).dismissedAt).toBeUndefined();
+  });
+
+  it('does not stamp abandoned jobs', () => {
+    expect(migrateJob(rec({ state: 'abandoned' })).dismissedAt).toBeUndefined();
+  });
+});

@@ -151,21 +151,27 @@ function jobRow(j, pendingApprovals, openingWaits) {
   const actions = jobActions(j, pendingApprovals, openingWaits);
   const feeds = jobFeeds(j);
   const onlyFailed = actions.length > 0 && actions.every((a) => a.kind === 'failed');
+  const finished = j.state === 'done' || j.state === 'failed';
   let tone;
   if (j.state === 'failed') tone = 'failed';
   else if (feeds.length) tone = 'live';
   else if (onlyFailed) tone = 'failed';
   else if (actions.length) tone = 'you';
   else tone = planIsLive(j) ? 'parked' : 'idle';
-  const status = actions.length
-    ? { text: actionsText(actions, j), tone: onlyFailed ? 'failed' : 'you' }
-    : { text: idleText(j, feeds), tone: feeds.length ? 'live' : 'mute' };
+  if (j.state === 'done') tone = 'idle';
+  let status;
+  if (j.state === 'done') status = { text: 'Done', tone: 'mute' };
+  else if (actions.length) status = { text: actionsText(actions, j), tone: onlyFailed ? 'failed' : 'you' };
+  else status = { text: idleText(j, feeds), tone: feeds.length ? 'live' : 'mute' };
   return {
     key: `job:${j.id}`, kind: 'job', id: j.id,
     ref: j.externalRef?.issueIdentifier ?? null, refMono: true, kindLabel: null,
     title: j.title ?? '(untitled job)', tone, status, time: j.updatedAt ?? 0,
     actions, actionLabel: actionLabel(actions), feeds,
-    engagedAt: j.lastEngagedAt ?? j.createdAt ?? 0, createdAt: j.createdAt ?? 0, cwd: null, inboxItem: null,
+    dismissable: finished,
+    // A finished job is never touched again, so its last write is when it finished.
+    engagedAt: Math.max(j.lastEngagedAt ?? j.createdAt ?? 0, finished ? (j.updatedAt ?? 0) : 0),
+    createdAt: j.createdAt ?? 0, cwd: null, inboxItem: null,
   };
 }
 
@@ -220,7 +226,7 @@ export function cockpitBoard({
 } = {}) {
   const started = [], notStarted = [], backlog = [];
   for (const j of jobs) {
-    if (j.state === 'done' || j.state === 'abandoned') continue;
+    if (j.state === 'abandoned' || j.dismissedAt != null) continue;
     const row = jobRow(j, pendingApprovals, openingWaits);
     if (planIsLive(j)) started.push(row);
     else if (isBacklog(j)) backlog.push(row);

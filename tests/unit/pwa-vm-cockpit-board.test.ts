@@ -16,9 +16,36 @@ const orc = (over: Record<string, unknown> = {}) => ({
 const board = (input: Record<string, unknown>) => cockpitBoard({ now: NOW, ...input });
 
 describe('sections', () => {
-  it('drops done and abandoned jobs, keeps failed', () => {
-    const b = board({ jobs: [job({ id: 'a', state: 'done' }), job({ id: 'b', state: 'abandoned' }), job({ id: 'c', state: 'failed' })] });
-    expect(b.started.map((r: any) => r.id)).toEqual(['c']);
+  it('keeps done and failed jobs until dismissed, drops abandoned', () => {
+    const b = board({ jobs: [
+      job({ id: 'done', state: 'done' }), job({ id: 'failed', state: 'failed' }),
+      job({ id: 'gone', state: 'done', dismissedAt: NOW }), job({ id: 'ab', state: 'abandoned' }),
+    ] });
+    const ids = [...b.started, ...b.notStarted, ...b.backlog].map((r: any) => r.id).sort();
+    expect(ids).toEqual(['done', 'failed']);
+  });
+
+  it('a done job reads Done and is dismissable', () => {
+    const b = board({ jobs: [job({ id: 'd', state: 'done', steps: [orc({ state: 'resolved' })] })] });
+    const r = b.started[0];
+    expect(r.status).toEqual({ text: 'Done', tone: 'mute' });
+    expect(r.tone).toBe('idle');
+    expect(r.dismissable).toBe(true);
+    expect(r.actions).toEqual([]);
+    expect(b.tally.needYou).toBe(0);
+  });
+
+  it('finishing counts as activity, so a just-finished job rises', () => {
+    const b = board({ jobs: [
+      job({ id: 'live', state: 'executing', lastEngagedAt: NOW - 1_000 }),
+      job({ id: 'fin', state: 'done', lastEngagedAt: NOW - 9_000, updatedAt: NOW }),
+    ] });
+    expect(b.started.map((r: any) => r.id)).toEqual(['fin', 'live']);
+  });
+
+  it('a live job is not dismissable', () => {
+    const b = board({ jobs: [job({ id: 'x', state: 'executing' })] });
+    expect(b.started[0].dismissable).toBe(false);
   });
 
   it('splits started, not started and backlog', () => {
