@@ -82,7 +82,7 @@ End the plan with a final task (or a short closing section) for whole-plan verif
 
 Read your own draft end-to-end before calling the submit tool. Check for:
 
-- **Spec coverage** — walk the spec's own sections (architecture, data flow, error handling, testing, etc.) and confirm every one of them maps to at least one task. A spec section with no corresponding task is either an oversight or should have been called out as deliberately deferred — don't let it fall through silently.
+- **Spec coverage** — walk the spec's own sections (architecture, data flow, error handling, testing, etc.) and confirm every one of them maps to at least one task. A spec section with no corresponding task is either an oversight or should have been called out as deliberately deferred — don't let it fall through silently. The spec's test list is the exception: a test it names for simple logic, a helper, a mapping, or wiring is dropped, not planned — say "dropped per SHARED-style.md" in one line.
 - **Placeholders** — no `TODO`, `[fill in]`, `<...>`, or similar left in the text.
 - **Type/name consistency** — function names, type names, and file paths are used the same way every time they're mentioned; a sketch in Task 2 doesn't contradict a signature assumed in Task 4.
 - **No commit ceremony leaked in** — grep your own draft for `git commit`, `git push`, `gh pr` before submitting; none of those verbs belong in this plan.

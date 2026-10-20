@@ -74,7 +74,7 @@ A typical non-trivial spec covers, as sections (rename/reorder/drop freely to fi
 - **Architecture / components** — what files/modules are touched or added, how they fit the existing structure.
 - **Data flow** — how data or control moves through the new/changed pieces.
 - **Error handling** — failure modes and how they're handled (or explicitly deferred, with reasoning).
-- **Testing** — what will be tested and how, matching the repo's existing test conventions.
+- **Testing** — usually "no new tests; verified by the existing suite and <how the path is exercised>". Name a test only for a function with high input cardinality (many branches or edge cases a reader can't hold in their head), one with several side effects whose ordering or interaction could break silently, or a subtle regression this change fixes — and say in one line what it asserts. Never list tests for simple logic, helpers, mappings, wiring, validation, or straight-line code; every test you name here becomes a task in the plan and a file in the diff. Hold each one to the Tests section of `cat ~/.outpost/actions/SHARED-style.md`.
 - **Assumptions** — every judgment call you made in place of asking a question, listed explicitly so the gate reviewer can override any of them.
 - **Out of scope** — anything the goal could be read to include that you're deliberately not doing, and why.
 
@@ -93,6 +93,7 @@ Read your own draft end-to-end before calling the submit tool. Check for:
 - **Placeholders** — no `TODO`, `[fill in]`, `<...>`, or similar left in the text.
 - **Internal consistency** — the architecture section doesn't contradict the data-flow section; file paths mentioned are ones you actually verified exist (or explicitly flagged as new).
 - **Scope match** — the spec addresses the step's `goal` fully, doesn't wander into unrelated territory, and doesn't quietly narrow the goal without saying so in "Out of scope."
+- **Test list** — for every test in the Testing section, name the specific bug it catches that reading the code wouldn't. Can't name one in a sentence → delete it. An empty list is the expected outcome for most changes.
 - **Ambiguity** — every open question either has a resolved assumption recorded, or (if truly load-bearing and you can't responsibly guess) is called out plainly as a risk for the user to weigh in on at the gate — that's different from leaving it unresolved.
 
 Fix issues inline; don't submit a draft you'd flag in someone else's review.
