@@ -170,6 +170,7 @@ const sessionHandlers = {
   },
 
   stream_event(msg, sid, isCurrent) {
+    sessions.for(sid).setMcpPending(false);
     // message_stop fires at the end of EVERY assistant turn; message_delta is canonical
     const ev = msg.event ?? msg;
     const deltaReason = ev?.delta?.stop_reason;
@@ -212,8 +213,14 @@ const sessionHandlers = {
     }
   },
 
-  system(msg, _sid, isCurrent) {
+  system(msg, sid, isCurrent) {
     if (msg.subtype === 'task_notification' && applyTaskNotification(msg) && isCurrent) deps.renderSession();
+    // claude -p holds the turn's first API request until every pending server connects; init is the only frame that says so
+    if (msg.subtype === 'init' && msg.mcp_servers?.some((s) => s.status === 'pending')) {
+      sessions.for(sid).setMcpPending(true);
+      if (!sessions.getSlice(sid)?.thinking) deps.startThinking(sid);
+      if (isCurrent) deps.renderSession();
+    }
   },
 
   // The only place --print mode states a model's context window — statusLine never fires there

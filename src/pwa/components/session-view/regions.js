@@ -73,8 +73,8 @@ export function renderThinkingStrip(region, slice) {
   if (!slice?.thinking) { region.innerHTML = ''; return; }
   const activeTools = slice.activeTools ?? [];
   const top = activeTools.length ? activeTools[activeTools.length - 1] : null;
-  const verb = top
-    ? (TOOL_VERBS[top.toolName] || 'thinking')
+  const verb = slice.mcpPending ? 'loading MCPs'
+    : top ? (TOOL_VERBS[top.toolName] || 'thinking')
     : (slice.lingeringVerb || 'thinking');
   const meta = fmtDuration(slice.thinkingStartedAt);
   const existing = region.firstElementChild;
