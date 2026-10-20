@@ -85,8 +85,7 @@ export class ClaudeProc {
       ],
       {
         cwd: opts.cwd,
-        // claude -p holds the first turn until every MCP server connects; the 30s default stalls every spawn on bad wifi
-        env: { MCP_TIMEOUT: '5000', ...process.env, ...opts.env },
+        env: { ...process.env, ...opts.env },
         stdio: ['pipe', 'pipe', 'pipe'],
       },
     );
