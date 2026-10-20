@@ -19,6 +19,7 @@ function makeEngine() {
   const spawned: { id: string; cwd: string; env?: unknown }[] = [];
   const sent: { id: string; content: unknown }[] = [];
   const prompts = new Map<string, string>();
+  const stamped = new Map<string, { action: string; title: string }>();
   const sessionManager = {
     spawnDetached(id: string, cwd: string, env?: unknown) { spawned.push({ id, cwd, env }); },
     send(id: string, msg: { message: { content: unknown } }) { sent.push({ id, content: msg.message.content }); },
@@ -34,8 +35,9 @@ function makeEngine() {
     newId: (() => { let n = 0; return () => `id-${++n}`; })(),
     now: () => 1000,
     writeSystemPrompt: (id, text) => prompts.set(id, text),
+    writeActionMeta: (id, meta) => stamped.set(id, meta),
   });
-  return { engine, queue, spawned, sent, prompts };
+  return { engine, queue, spawned, sent, prompts, stamped };
 }
 
 function sessionStep(extra: Partial<ActionStep> = {}): ActionStep {
@@ -57,7 +59,7 @@ const stepOf = (queue: JobQueue, jobId: string, id = 's') =>
 
 describe('WorkEngine meta.session', () => {
   it('starts an unbound session with the prompt as its first turn and parks behind it', async () => {
-    const { engine, queue, spawned, sent, prompts } = makeEngine();
+    const { engine, queue, spawned, sent, prompts, stamped } = makeEngine();
     const jobId = seed(queue, engine, [sessionStep()]);
 
     await engine.tick(jobId);
@@ -70,6 +72,7 @@ describe('WorkEngine meta.session', () => {
     expect(sent).toEqual([{ id: sid, content: '/investigate-cscu CSCU-42' }]);
     expect(prompts.get(sid)).toContain("this session IS the step's work");
     expect(engine.interactiveTarget(sid)).toBeUndefined();
+    expect(stamped.get(sid)).toEqual({ action: 'meta.session', title: 'Investigate CSCU-42' });
 
     await engine.tick(jobId);
     expect(spawned).toHaveLength(1);
@@ -107,5 +110,14 @@ describe('WorkEngine meta.session', () => {
 
     expect(spawned).toEqual([]);
     expect(stepOf(queue, jobId).failure?.reason).toMatch(/prompt/);
+  });
+
+  it('stamps manual sessions that predate the stamp at boot', () => {
+    const { engine, queue, stamped } = makeEngine();
+    seed(queue, engine, [sessionStep({ state: 'waiting', manualSession: { id: 'old', cwd: '/x' } })]);
+
+    engine.rehydrateSessionBindings();
+
+    expect(stamped.get('old')).toEqual({ action: 'meta.session', title: 'Investigate CSCU-42' });
   });
 });

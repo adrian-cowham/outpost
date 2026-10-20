@@ -645,6 +645,9 @@ export class WorkEngine {
         this.bindAction(j.orchestratorSessionId, j.orchestratorAction ?? 'meta.orchestrate');
       }
       for (const s of j.steps) {
+        // Manual sessions opened before they were stamped would otherwise list as the user's own
+        // sessions, showing up in the cockpit a second time beside their job.
+        if (s.type === 'action' && s.manualSession) this.stampActionSession(s.manualSession.id, s.action, s.title || 'Step');
         if (s.sessionId) {
           this.roleBySession.set(s.sessionId, { role: 'step', jobId: j.id, stepId: s.id });
           // `s.boundAction`, not just `actionNameForStep(s)` (== `s.controller` for an
@@ -1579,6 +1582,7 @@ export class WorkEngine {
     const job = this.opts.queue.get(jobId)!;
     const sessionId = this.ctx.newId();
     this.opts.writeSystemPrompt?.(sessionId, waitSessionContext(job, stepId));
+    this.stampActionSession(sessionId, step.action, step.title || 'Step');
     this.mutateStep(jobId, stepId, (s) => s.type === 'action'
       ? { ...s, manualSession: { id: sessionId, cwd }, updatedAt: this.ctx.now() }
       : s);
@@ -1620,6 +1624,7 @@ export class WorkEngine {
         const cur = job?.steps.find((x) => x.id === stepId);
         if (!job || cur?.type !== 'action' || cur.state !== 'running' || cur.cancelled || cur.failure) return false;
         this.opts.writeSystemPrompt?.(sessionId, waitSessionContext(job, stepId));
+        this.stampActionSession(sessionId, cur.action, cur.title || 'Step');
         this.opts.sessionManager.spawnDetached(sessionId, cwd);
         this.mutateStep(jobId, stepId, (st) => st.type === 'action'
           ? this.appendStepEvent({ ...st, state: 'waiting', manualSession: { id: sessionId, cwd }, updatedAt: this.ctx.now() }, 'spawned', 'orchestrator')
