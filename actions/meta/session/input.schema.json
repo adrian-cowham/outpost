@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "meta.session input",
+  "type": "object",
+  "required": ["prompt"],
+  "properties": {
+    "prompt": {
+      "type": "string",
+      "minLength": 1,
+      "description": "First message sent to the session, verbatim — typically a skill invocation such as \"/investigate-cscu CSCU-123\"."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Optional one-liner shown on the step in the PWA."
+    }
+  },
+  "additionalProperties": false
+}

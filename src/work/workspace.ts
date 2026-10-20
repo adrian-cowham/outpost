@@ -26,8 +26,8 @@ export function workspaceError(ws: WorkspaceRef | undefined): string | null {
 // A hold must never own a branch: its session is the user's, opened at will, and a writable
 // worktree would claim the branch from the step that ships it.
 export function waitWorkspaceError(action: string | undefined, ws: WorkspaceRef | undefined): string | null {
-  if (action === 'meta.wait' && ws?.kind === 'writable') {
-    return 'meta.wait takes a "readonly" or "none" workspace, never "writable"';
+  if ((action === 'meta.wait' || action === 'meta.session') && ws?.kind === 'writable') {
+    return `${action} takes a "readonly" or "none" workspace, never "writable"`;
   }
   return null;
 }

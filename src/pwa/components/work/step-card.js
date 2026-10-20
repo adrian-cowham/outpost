@@ -10,7 +10,7 @@ import { isTerminalStep, hasUnapprovedDraft, draftAwaitsUser } from '../../vm/wo
 import { shortName } from '../../utils/formatting.js';
 import { stepFeedHtml } from './wheel-toggle.js';
 import { sessionsApi } from '../../net/sessions.js';
-import { waitSessionLabel, openWaitStepSession } from './wait-session.js';
+import { waitSessionLabel, openWaitStepSession, isSessionStep } from './wait-session.js';
 
 function escapeHtml(s) { return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
 
@@ -119,10 +119,10 @@ function actionFor(job, s) {
   if (s.type === 'orchestrated') return '';
   // meta.wait hold: let the user release it early (timed) or at all (indefinite).
   if (s.type === 'action' && s.state === 'waiting') {
-    return `<button class="o-btn o-btn--primary" data-step-action="resume">Resume now</button>`
+    return `<button class="o-btn o-btn--primary" data-step-action="resume">${isSessionStep(s) ? 'Done' : 'Resume now'}</button>`
       + waitSessionButton(job, s);
   }
-  if (s.type === 'action' && s.action === 'meta.wait') return waitSessionButton(job, s);
+  if (s.type === 'action' && (s.action === 'meta.wait' || isSessionStep(s))) return waitSessionButton(job, s);
   // human_gate: the drafted write itself renders via renderWriteDraft (draftsHtml below),
   // which carries its own Accept/Propose changes/Deny buttons — nothing to add here.
   // Resolve is a manual fallback for action steps whose session subprocess

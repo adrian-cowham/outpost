@@ -141,7 +141,10 @@ function idleText(j, feeds) {
   if (!planIsLive(j)) return j.orchestratorSessionId ? 'Planning' : 'Not launched';
   const step = (j.steps ?? []).find((s) => !s.cancelled && !isTerminalStep(s));
   if (!step) return 'Waiting';
-  if (step.type !== 'orchestrated') return step.state === 'waiting' ? 'Soaking' : 'Queued';
+  if (step.type !== 'orchestrated') {
+    if (step.state !== 'waiting') return 'Queued';
+    return step.action === 'meta.session' ? 'Your session' : 'Soaking';
+  }
   const line = orchestratedRows(step).statusLine ?? 'Waiting';
   const pr = prNumber(step.pr?.prUrl);
   return pr ? `PR #${pr} · ${line}` : line;

@@ -28,11 +28,14 @@ export const actionHandler: StepHandler<ActionStep> = {
   decide(s, job, ctx) {
     if (s.cancelled || s.failure) return null;
 
-    // Builtin-runner actions are daemon-implemented — never spawn a Claude session.
-    // meta.wait is the only one today: a hold that parks the step until the user
-    // resumes or its soak timer (`resumeAt`) elapses.
+    // Builtin-runner actions are daemon-implemented — never spawn an action-bound session.
+    // meta.wait is a hold that parks the step until the user resumes or its soak timer
+    // (`resumeAt`) elapses; meta.session parks it behind a session the user drives.
     const runner = ctx.actionRegistry?.getAction(s.action)?.frontmatter.outpost.runner;
     if (runner === 'builtin') {
+      if (s.action === 'meta.session') {
+        return s.state === 'running' ? { kind: 'start-session', jobId: job.id, stepId: s.id } : null;
+      }
       if (s.action !== 'meta.wait') return null;
       if (s.state === 'running') {
         const durationSec = typeof s.inputs?.duration_sec === 'number' ? s.inputs.duration_sec : undefined;

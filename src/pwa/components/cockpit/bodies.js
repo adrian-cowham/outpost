@@ -19,7 +19,7 @@ import { worktreeChanges } from '../../state/worktree-changes.js';
 import { stepDotState } from '../work/ticket-row.js';
 import { actionCategory, actionDisplayName } from '../work/action-icon.js';
 import { openAddStepDialog } from '../work/add-step-dialog.js';
-import { waitSessionLabel, openWaitStepSession } from '../work/wait-session.js';
+import { waitSessionLabel, openWaitStepSession, isSessionStep } from '../work/wait-session.js';
 import { mountSessionView } from '../session-view/index.js';
 import { sessionsApi } from '../../net/sessions.js';
 import { wireAutogrow } from '../../utils/autogrow.js';
@@ -50,10 +50,12 @@ const ACTION_HTML = {
       </div>`;
   },
   wait(job, a) {
-    const sessionLabel = waitSessionLabel(job, stepOf(job, a.stepId));
-    return `<div class="ckb-tl-sub">${escapeHtml(a.reason || 'Holding until you resume.')}</div>
+    const step = stepOf(job, a.stepId);
+    const sessionLabel = waitSessionLabel(job, step);
+    const session = isSessionStep(step);
+    return `<div class="ckb-tl-sub">${escapeHtml(a.reason || (session ? 'Your session — mark it done when you are.' : 'Holding until you resume.'))}</div>
       <div class="ckb-body-actions">
-        <button type="button" class="o-btn o-btn--primary" data-ckb-body="resume-wait" data-step-id="${escapeHtml(a.stepId)}">Resume</button>
+        <button type="button" class="o-btn o-btn--primary" data-ckb-body="resume-wait" data-step-id="${escapeHtml(a.stepId)}">${session ? 'Done' : 'Resume'}</button>
         ${sessionLabel ? `<button type="button" class="o-btn o-btn--default" data-ckb-body="wait-session" data-step-id="${escapeHtml(a.stepId)}">${escapeHtml(sessionLabel)}</button>` : ''}
         <button type="button" class="o-btn o-btn--danger" data-ckb-body="abandon">Abandon job</button>
       </div>

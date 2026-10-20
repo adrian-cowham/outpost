@@ -3,9 +3,16 @@ import { openSession } from '../../app-bridge.js';
 import { sessions } from '../../state/sessions.js';
 import { openCwdPickerSheet } from '../cwd-picker.js';
 
+const USER_SESSION_ACTIONS = new Set(['meta.wait', 'meta.session']);
+
+const hasUserSession = (s) => s?.type === 'action' && USER_SESSION_ACTIONS.has(s.action);
+
+// A meta.session step ends when the user says the work is done, not when a hold is released.
+export const isSessionStep = (s) => s?.type === 'action' && s.action === 'meta.session';
+
 // The user's session on a parked wait, which the step renders inline as a full session view.
 export function inlineWaitSession(s) {
-  if (s?.type !== 'action' || s.action !== 'meta.wait') return null;
+  if (!hasUserSession(s)) return null;
   return s.state === 'waiting' && !s.cancelled && !s.failure ? s.manualSession ?? null : null;
 }
 
@@ -16,7 +23,7 @@ export function waitSessionOpening(job, s) {
 // The label for a meta.wait's session button, or null when the step offers none: a parked
 // wait can start one, and once the wait settles it stays reachable until the job's teardown closes it.
 export function waitSessionLabel(job, s) {
-  if (s?.type !== 'action' || s.action !== 'meta.wait') return null;
+  if (!hasUserSession(s)) return null;
   if (job.state === 'done' || job.state === 'abandoned') return null;
   if (inlineWaitSession(s) || waitSessionOpening(job, s)) return null;
   if (s.manualSession) return 'View session';

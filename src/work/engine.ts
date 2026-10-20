@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { JobQueue } from './work-queue.js';
@@ -779,6 +780,9 @@ export class WorkEngine {
         break;
       case 'resolve-wait':
         this.resolveWaitStep(a.jobId, a.stepId, 'timer');
+        break;
+      case 'start-session':
+        await this.startSessionStep(a.jobId, a.stepId);
         break;
       case 'deliver-inbox':
         deliverInbox(this.orchestratedHost(), a.jobId, a.stepId);
@@ -1564,21 +1568,13 @@ export class WorkEngine {
   private async createWaitSession(jobId: string, stepId: string, pickedCwd?: string): Promise<{ sessionId: string; cwd: string }> {
     const step = this.opts.queue.get(jobId)?.steps.find((s) => s.id === stepId);
     if (!step) throw new WaitSessionError(404, 'step not found');
-    if (step.type !== 'action' || step.action !== 'meta.wait') throw new WaitSessionError(409, 'not a meta.wait step');
+    if (step.type !== 'action' || (step.action !== 'meta.wait' && step.action !== 'meta.session')) {
+      throw new WaitSessionError(409, 'not a meta.wait or meta.session step');
+    }
     if (step.manualSession) return { sessionId: step.manualSession.id, cwd: step.manualSession.cwd };
     if (step.state !== 'waiting' || step.cancelled || step.failure) throw new WaitSessionError(409, 'the wait is not parked');
-
-    let cwd: string;
-    if (step.workspace.kind === 'none') {
-      if (!pickedCwd) throw new WaitSessionError(400, 'cwd required for a wait with no workspace');
-      cwd = pickedCwd;
-    } else {
-      const err = workspaceError(step.workspace) ?? waitWorkspaceError(step.action, step.workspace);
-      if (err) throw new WaitSessionError(409, err);
-      const ws = await this.opts.worktreeManager.provision(stepId, step.workspace);
-      if (!ws.path) throw new WaitSessionError(409, 'workspace provisioned no checkout');
-      cwd = ws.path;
-    }
+    if (step.workspace.kind === 'none' && !pickedCwd) throw new WaitSessionError(400, 'cwd required for a wait with no workspace');
+    const cwd = await this.manualSessionCwd(step, pickedCwd ?? '');
 
     const job = this.opts.queue.get(jobId)!;
     const sessionId = this.ctx.newId();
@@ -1587,6 +1583,54 @@ export class WorkEngine {
       ? { ...s, manualSession: { id: sessionId, cwd }, updatedAt: this.ctx.now() }
       : s);
     return { sessionId, cwd };
+  }
+
+  private async manualSessionCwd(step: ActionStep, noneCwd: string): Promise<string> {
+    if (step.workspace.kind === 'none') return noneCwd;
+    const err = workspaceError(step.workspace) ?? waitWorkspaceError(step.action, step.workspace);
+    if (err) throw new WaitSessionError(409, err);
+    const ws = await this.opts.worktreeManager.provision(step.id, step.workspace);
+    if (!ws.path) throw new WaitSessionError(409, 'workspace provisioned no checkout');
+    return ws.path;
+  }
+
+  // A meta.session step just became active: start the user's session with the step's prompt as
+  // its first turn, and park the step behind it until they mark it done. The session is
+  // unbound — the user's own permissions, not an action allowlist — like a wait's.
+  private async startSessionStep(jobId: string, stepId: string): Promise<void> {
+    const step = this.opts.queue.get(jobId)?.steps.find((s) => s.id === stepId);
+    if (!step || step.type !== 'action') return;
+    const prompt = typeof step.inputs?.prompt === 'string' ? step.inputs.prompt.trim() : '';
+    if (!prompt) {
+      this.onStepFailed(jobId, stepId, 'meta.session needs a non-empty inputs.prompt', { journal: false });
+      return;
+    }
+    let cwd: string;
+    try {
+      cwd = await this.manualSessionCwd(step, homedir());
+    } catch (e) {
+      this.onStepFailed(jobId, stepId, (e as Error).message, { journal: false });
+      return;
+    }
+    const sessionId = this.ctx.newId();
+    this.submitLaunch({
+      key: `${jobId}#${stepId}`, jobId, stepId, sessionId, action: 'meta.session', label: 'meta.session',
+      run: () => {
+        const job = this.opts.queue.get(jobId);
+        const cur = job?.steps.find((x) => x.id === stepId);
+        if (!job || cur?.type !== 'action' || cur.state !== 'running' || cur.cancelled || cur.failure) return false;
+        this.opts.writeSystemPrompt?.(sessionId, waitSessionContext(job, stepId));
+        this.opts.sessionManager.spawnDetached(sessionId, cwd);
+        this.mutateStep(jobId, stepId, (st) => st.type === 'action'
+          ? this.appendStepEvent({ ...st, state: 'waiting', manualSession: { id: sessionId, cwd }, updatedAt: this.ctx.now() }, 'spawned', 'orchestrator')
+          : st);
+        this.mutate(jobId, (j) => this.appendEvent(j, {
+          kind: 'step_started', who: 'orchestrator', stepId, body: `${this.stepLabel(jobId, stepId)} — your session started`,
+        }));
+        this.opts.sessionManager.send(sessionId, { type: 'user', message: { role: 'user', content: prompt } });
+        return true;
+      },
+    });
   }
 
   // Called once at daemon startup: soak timers don't survive a restart. Re-arm every

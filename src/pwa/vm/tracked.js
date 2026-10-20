@@ -140,7 +140,15 @@ export function focusAction(job) {
         cta: { label: 'Review', action: 'review-gate', stepId: step.id },
       };
     }
-    // The only other thing stepNeedsYou flags is an indefinite meta.wait hold.
+    // The only other thing stepNeedsYou flags is an indefinite hold: a meta.wait, or a
+    // meta.session the user is working in.
+    if (step.action === 'meta.session') {
+      return {
+        title: 'Your session',
+        description: step.inputs?.reason ? String(step.inputs.reason) : `${step.title} — mark it done when you're finished.`,
+        cta: { label: 'Done', action: 'resume-wait', stepId: step.id },
+      };
+    }
     return {
       title: 'On hold',
       description: step.inputs?.reason ? String(step.inputs.reason) : `${step.title} is holding until you resume.`,
