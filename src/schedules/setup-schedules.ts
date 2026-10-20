@@ -7,18 +7,23 @@ import type { SchedulesStore } from './schedules-store.js';
 // token is sent as a raw `authorization` header (no "Bearer" prefix) — that's what Linear expects.
 const LINEAR_SCRIPT = String.raw`
 set -euo pipefail
-resp=$(curl -fsS -X POST https://api.linear.app/graphql \
-  -H "authorization: $LINEAR_API_TOKEN" -H 'content-type: application/json' \
-  -d '{"query":"query { viewer { assignedIssues(filter: { state: { type: { in: [\"backlog\", \"unstarted\", \"started\"] } } }, first: 50) { nodes { id identifier url title description } } } }"}')
-echo "$resp" | jq -c '.data.viewer.assignedIssues.nodes[]' | while read -r issue; do
-  identifier=$(echo "$issue" | jq -r .identifier)
-  url=$(echo "$issue" | jq -r .url)
-  title=$(echo "$issue" | jq -r .title)
-  body=$(echo "$issue" | jq -r '.description // ""')
-  curl -fsS -X POST "http://127.0.0.1:$OUTPOST_HOOK_PORT/work/create-job" \
-    -H "x-daemon-auth: $DAEMON_AUTH" -H 'content-type: application/json' \
-    -d "$(jq -n --arg t "$title" --arg b "$body" --arg k "$identifier" --arg u "$url" \
-      '{source:"linear",title:$t,body:$b,dedupeKey:$k,externalRef:{url:$u,issueIdentifier:$k}}')" >/dev/null
+after=null
+while :; do
+  resp=$(curl -fsS -X POST https://api.linear.app/graphql \
+    -H "authorization: $LINEAR_API_TOKEN" -H 'content-type: application/json' \
+    -d "$(jq -n --argjson after "$after" '{query:"query($after: String) { viewer { assignedIssues(filter: { state: { type: { nin: [\"completed\", \"canceled\", \"duplicate\"] } } }, first: 50, after: $after) { nodes { id identifier url title description } pageInfo { hasNextPage endCursor } } } }",variables:{after:$after}}')")
+  echo "$resp" | jq -c '.data.viewer.assignedIssues.nodes[]' | while read -r issue; do
+    identifier=$(echo "$issue" | jq -r .identifier)
+    url=$(echo "$issue" | jq -r .url)
+    title=$(echo "$issue" | jq -r .title)
+    body=$(echo "$issue" | jq -r '.description // ""')
+    curl -fsS -X POST "http://127.0.0.1:$OUTPOST_HOOK_PORT/work/create-job" \
+      -H "x-daemon-auth: $DAEMON_AUTH" -H 'content-type: application/json' \
+      -d "$(jq -n --arg t "$title" --arg b "$body" --arg k "$identifier" --arg u "$url" \
+        '{source:"linear",title:$t,body:$b,dedupeKey:$k,externalRef:{url:$u,issueIdentifier:$k}}')" >/dev/null
+  done
+  [ "$(echo "$resp" | jq -r .data.viewer.assignedIssues.pageInfo.hasNextPage)" = true ] || break
+  after=$(echo "$resp" | jq -c .data.viewer.assignedIssues.pageInfo.endCursor)
 done
 `.trim();
 
@@ -33,7 +38,7 @@ export function seedBuiltinSchedules(store: SchedulesStore, homeDir: string): vo
     trigger: { kind: 'cron', expr: '0 9 * * *' },
     what: { kind: 'script', script: 'brew upgrade claude-code', cwd: homeDir },
   });
-  store.ensureBuiltin({
+  const linear = store.ensureBuiltin({
     id: 'linear',
     name: 'Linear — assigned issues',
     trigger: { kind: 'cron', expr: '0 * * * *' },
@@ -43,6 +48,10 @@ export function seedBuiltinSchedules(store: SchedulesStore, homeDir: string): vo
     // `enabled` on first seed, so a user who adds a token later can flip it on manually.
     enabled: !!process.env.LINEAR_API_TOKEN,
   });
+  // Only the old default carries this allowlist, which dropped Triage tickets and never paginated
+  if (linear.what.kind === 'script' && linear.what.script.includes(String.raw`in: [\"backlog\", \"unstarted\", \"started\"]`)) {
+    store.update(linear.id, { what: { ...linear.what, script: LINEAR_SCRIPT } });
+  }
   store.ensureBuiltin({
     id: 'pr-watcher',
     name: 'PR watcher',
