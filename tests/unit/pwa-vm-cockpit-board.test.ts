@@ -29,7 +29,7 @@ describe('sections', () => {
     const b = board({ jobs: [job({ id: 'd', state: 'done', steps: [orc({ state: 'resolved' })] })] });
     const r = b.started[0];
     expect(r.status).toEqual({ text: 'Done', tone: 'mute' });
-    expect(r.tone).toBe('idle');
+    expect(r.tone).toBe('done');
     expect(r.dismissable).toBe(true);
     expect(r.actions).toEqual([]);
     expect(b.tally.needYou).toBe(0);

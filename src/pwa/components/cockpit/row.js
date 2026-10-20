@@ -3,9 +3,9 @@ import { relPast } from '../../utils/formatting.js';
 import { OPENABLE } from '../../vm/cockpit-board.js';
 import { syncFeeds, teardownFeeds } from './feeds.js';
 
-const GLYPH = { live: '◉', you: '●', parked: '○', failed: '✕', idle: '·' };
-const ICON_CLASS = { live: 'busy', you: 'warn', parked: 'idle', failed: 'hot', idle: 'idle' };
-const AGED = new Set(['you', 'parked', 'idle', 'failed']);
+const GLYPH = { live: '◉', you: '●', parked: '○', failed: '✕', done: '●', idle: '·' };
+const ICON_CLASS = { live: 'busy', you: 'warn', parked: 'idle', failed: 'hot', done: 'ok', idle: 'idle' };
+const AGED = new Set(['you', 'parked', 'idle', 'failed', 'done']);
 const CHEVRON = '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 // Short identifiers only, so titles line up down a group; a session's repo trails its title instead.

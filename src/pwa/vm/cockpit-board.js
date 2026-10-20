@@ -158,7 +158,7 @@ function jobRow(j, pendingApprovals, openingWaits) {
   else if (onlyFailed) tone = 'failed';
   else if (actions.length) tone = 'you';
   else tone = planIsLive(j) ? 'parked' : 'idle';
-  if (j.state === 'done') tone = 'idle';
+  if (j.state === 'done') tone = 'done';
   let status;
   if (j.state === 'done') status = { text: 'Done', tone: 'mute' };
   else if (actions.length) status = { text: actionsText(actions, j), tone: onlyFailed ? 'failed' : 'you' };
