@@ -759,7 +759,7 @@ html[data-layout="desktop"] .o-frame-list .o-row.lr-row[hidden] { display: none;
    The frame owns the border, and its bar carries the way out: an accented title bar says the
    step is under manual control without the window itself shouting it. */
 .step-drive {
-  margin: 8px 6px 4px;
+  margin: 8px 0 4px;
   border: 1px solid var(--accent);
   border-radius: var(--r-container);
   overflow: hidden;

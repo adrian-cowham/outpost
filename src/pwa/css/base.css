@@ -564,7 +564,7 @@ html[data-density="roomy"] {
    to the composer edge. */
 .step-inline-session {
   position: relative;
-  margin: 8px 6px 4px;
+  margin: 8px 0 4px;
   padding: 10px 16px;
   background: var(--bg);
   border-radius: var(--r-container);
