@@ -1,4 +1,4 @@
-import { moveSection, pinRow, unpinRow, dropEmptyColumns } from '../../vm/cockpit-layout.js';
+import { moveSection, pinRow, unpinRow, dropEmptyColumns, isNamedPin } from '../../vm/cockpit-layout.js';
 
 const THRESHOLD_PX = 4;
 const EDGE_PX = 10;
@@ -108,7 +108,7 @@ export function installDrag(boardEl, board) {
   function rowTarget(col, p) {
     const key = active.src.id;
     const ownPin = Object.entries(active.layout.pinned).find(([, pin]) => pin.rows.includes(key));
-    const vanishing = ownPin && ownPin[1].rows.length === 1 ? `pin:${ownPin[0]}` : null;
+    const vanishing = ownPin && ownPin[1].rows.length === 1 && !isNamedPin(ownPin[1]) ? `pin:${ownPin[0]}` : null;
     const secs = col.sections.filter((s) => s.id !== vanishing);
     for (let i = 0; i <= secs.length; i++) {
       const above = secs[i - 1];

@@ -17,6 +17,11 @@ export function isPinnableKey(key) {
   return typeof key === 'string' && PINNABLE.test(key);
 }
 
+// A renamed pin outlives its rows; only the user's × removes it then.
+export function isNamedPin(pin) {
+  return pin.title !== DEFAULT_PIN_TITLE;
+}
+
 export function newPinId() {
   return crypto.randomUUID().slice(0, 8);
 }
@@ -67,9 +72,10 @@ export function normalizeLayout(raw, boardWidthPx) {
         const p = PIN_ID.test(pinId) ? rawPinned[pinId] : null;
         if (!p || typeof p !== 'object') continue;
         const rows = (Array.isArray(p.rows) ? p.rows : []).filter((k) => isPinnableKey(k) && !seenRows.has(k));
-        if (!rows.length) continue;
+        const pin = { title: clampTitle(p.title), rows };
+        if (!rows.length && !isNamedPin(pin)) continue;
         for (const k of rows) seenRows.add(k);
-        pinned[pinId] = { title: clampTitle(p.title), rows };
+        pinned[pinId] = pin;
       }
       seenSections.add(id);
       sections.push(id);
@@ -103,7 +109,7 @@ export function resolveBoard(board, layout) {
     }
     const pin = layout.pinned[pinIdOf(id)];
     const rows = pin.rows.map((k) => byKey.get(k)).filter(Boolean);
-    if (!rows.length) return null;
+    if (!rows.length && !isNamedPin(pin)) return null;
     return { id, kind: 'pinned', pinId: pinIdOf(id), title: pin.title, needYou: needYouOf(rows, 'pinned'), rows };
   };
   return {
@@ -131,7 +137,7 @@ function removeRow(l, rowKey, { keep } = {}) {
   for (const [id, p] of Object.entries(l.pinned)) {
     if (!p.rows.includes(rowKey)) continue;
     p.rows = p.rows.filter((k) => k !== rowKey);
-    if (!p.rows.length && id !== keep) dropPin(l, id);
+    if (!p.rows.length && id !== keep && !isNamedPin(p)) dropPin(l, id);
   }
 }
 
@@ -139,7 +145,7 @@ export function prunedLayout(layout, live) {
   const l = clone(layout);
   for (const [id, p] of Object.entries(l.pinned)) {
     p.rows = p.rows.filter((k) => live.has(k));
-    if (!p.rows.length) dropPin(l, id);
+    if (!p.rows.length && !isNamedPin(p)) dropPin(l, id);
   }
   return l;
 }
@@ -165,6 +171,12 @@ export function pinRow(layout, rowKey, target) {
   l.pinned[pinId] = { title: DEFAULT_PIN_TITLE, rows: [rowKey] };
   l.columns[target.newAt.col].sections.splice(target.newAt.index, 0, pinSection(pinId));
   return { layout: l, pinId };
+}
+
+export function removePin(layout, pinId) {
+  const l = clone(layout);
+  dropPin(l, pinId);
+  return l;
 }
 
 export function unpinRow(layout, rowKey) {

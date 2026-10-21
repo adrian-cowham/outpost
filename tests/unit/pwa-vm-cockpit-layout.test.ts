@@ -74,6 +74,11 @@ describe('normalizeLayout', () => {
     expect(n.pinned).toEqual({});
     expect(ids(n)).toEqual([['jobs'], ['other', 'sessions']]);
   });
+  it('keeps a renamed pin with no rows', () => {
+    const n = L.normalizeLayout(withPin([], 1, 'Replay'), W);
+    expect(n.pinned.p1).toEqual({ title: 'Replay', rows: [] });
+    expect(ids(n)).toEqual([['jobs'], ['other', 'sessions', 'pin:p1']]);
+  });
   it('re-adds a missing built-in to the first column', () => {
     const n = L.normalizeLayout({ columns: [{ width: 0.5, sections: ['jobs'] }, { width: 0.5, sections: ['sessions'] }], pinned: {} }, W);
     expect(ids(n)).toEqual([['jobs', 'other'], ['sessions']]);
@@ -130,6 +135,10 @@ describe('resolveBoard', () => {
     expect(sec(r, 'pin:p1')).toBeUndefined();
     expect(sec(r, 'sessions').rows).toEqual([]);
   });
+  it('keeps a renamed Pinned section whose rows are all dead, empty', () => {
+    const r = L.resolveBoard(board({ started: [], notStarted: [], backlog: [], sessions: [] }), withPin(['job:a'], 1, 'Replay'));
+    expect(sec(r, 'pin:p1').rows).toEqual([]);
+  });
   it('needYou counts rows with actions, and you-toned chips', () => {
     const r = L.resolveBoard(board(), withPin(['session:s2']));
     expect(sec(r, 'jobs').needYou).toBe(1);
@@ -176,6 +185,18 @@ describe('mutations', () => {
     expect(l.pinned).toEqual({});
     expect(l.columns[1].sections).toEqual(['other', 'sessions']);
   });
+  it('unpinning or moving out the last row keeps a renamed pin', () => {
+    expect(L.unpinRow(withPin(['job:a'], 1, 'Replay'), 'job:a').pinned.p1).toEqual({ title: 'Replay', rows: [] });
+    const l = withPin(['job:a'], 1, 'Replay');
+    l.pinned.p2 = { title: 'B', rows: ['job:b'] };
+    l.columns[0].sections.push('pin:p2');
+    expect(L.pinRow(l, 'job:a', { pinId: 'p2', index: 0 }).layout.pinned.p1.rows).toEqual([]);
+  });
+  it('removePin drops the pin and its section', () => {
+    const l = L.removePin(withPin([], 1, 'Replay'), 'p1');
+    expect(l.pinned).toEqual({});
+    expect(ids(l)).toEqual([['jobs'], ['other', 'sessions']]);
+  });
   it('moveSection to another column and index', () => {
     const l = L.moveSection(two(), 'sessions', 0, 0);
     expect(ids(l)).toEqual([['sessions', 'jobs'], ['other']]);
@@ -216,11 +237,14 @@ describe('mutations', () => {
   });
   it('prunedLayout drops dead keys and emptied pins', () => {
     const l = withPin(['job:gone', 'job:a']);
-    l.pinned.p2 = { title: 'B', rows: ['session:dead'] };
+    l.pinned.p2 = { title: 'Pinned', rows: ['session:dead'] };
     l.columns[0].sections.push('pin:p2');
     const p = L.prunedLayout(l, new Set(['job:a']));
     expect(p.pinned).toEqual({ p1: { title: 'Pinned', rows: ['job:a'] } });
     expect(ids(p)).toEqual([['jobs'], ['other', 'sessions', 'pin:p1']]);
+  });
+  it('prunedLayout keeps a renamed pin whose rows all died', () => {
+    expect(L.prunedLayout(withPin(['job:gone'], 1, 'Replay'), new Set()).pinned.p1).toEqual({ title: 'Replay', rows: [] });
   });
   it('prunedLayout keeps an empty column — pruning is not a drop', () => {
     const p = L.prunedLayout(L.addColumn(two()), new Set());

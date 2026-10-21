@@ -2,7 +2,7 @@
 
 import { cockpitBoard, stabilizeOrder, sessionsShownInBody } from '../../vm/cockpit-board.js';
 import {
-  normalizeLayout, resolveBoard, liveKeys, prunedLayout, addColumn, renamePinned, pinRow, unpinRow, moveSection,
+  normalizeLayout, resolveBoard, liveKeys, prunedLayout, addColumn, renamePinned, removePin, pinRow, unpinRow, moveSection,
   dropEmptyColumns, isPinnableKey, MIN_COLUMN_PX, GUTTER_PX,
 } from '../../vm/cockpit-layout.js';
 import { work } from '../../state/work.js';
@@ -181,6 +181,7 @@ export function renderDetail(mount) {
 
   const sectionCtx = {
     onRename(pinId, title) { applyLayout((l) => renamePinned(l, pinId, title)); },
+    onRemove(pinId) { applyLayout((l) => dropEmptyColumns(removePin(l, pinId))); },
     onNew() { openPalette(); },
     onChip(key) { const c = chipFor(key); if (c) { selectedKey = key; openFull(c.model); } },
     onToggleBacklog() { backlogOpen = !backlogOpen; schedule(); },

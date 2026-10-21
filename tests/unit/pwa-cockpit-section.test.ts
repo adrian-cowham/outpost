@@ -7,7 +7,7 @@ const row = (key: string, over: Record<string, unknown> = {}) => ({ key, kind: k
 const pinned = (over: Record<string, unknown> = {}) => ({
   id: 'pin:p1', kind: 'pinned', pinId: 'p1', title: 'Pinned', needYou: 0, rows: [row('job:a')], ...over,
 });
-const ctx = () => ({ onRename: vi.fn(), onNew: vi.fn(), onChip: vi.fn(), onToggleBacklog: vi.fn(), backlogOpen: () => false });
+const ctx = () => ({ onRename: vi.fn(), onRemove: vi.fn(), onNew: vi.fn(), onChip: vi.fn(), onToggleBacklog: vi.fn(), backlogOpen: () => false });
 
 function mount(resolved: any, c = ctx()) {
   const s = createSection(resolved, c);
@@ -73,6 +73,16 @@ describe('cockpit section', () => {
     expect(s.el.querySelector('.o-group-count')!.textContent).toBe('3');
     s.update(pinned({ needYou: 0 }));
     expect((s.el.querySelector('.ckb-need') as HTMLElement).hidden).toBe(true);
+  });
+
+  it('the remove button shows only while the pin is empty', () => {
+    const { s, c } = mount(pinned({ title: 'Replay' }));
+    const remove = s.el.querySelector('.ckb-pin-remove') as HTMLButtonElement;
+    expect(remove.hidden).toBe(true);
+    s.update(pinned({ title: 'Replay', rows: [] }));
+    expect(remove.hidden).toBe(false);
+    remove.click();
+    expect(c.onRemove).toHaveBeenCalledWith('p1');
   });
 
   it('the grip is a labelled button', () => {

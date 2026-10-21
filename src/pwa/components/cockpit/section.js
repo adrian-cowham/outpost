@@ -23,6 +23,7 @@ export function createSection(initial, ctx) {
       <span class="ckb-need" hidden></span>
       <span class="o-group-count"></span>
       <span class="o-group-rule"></span>
+      ${isPin ? '<button type="button" class="ckb-pin-remove" aria-label="Remove section" title="Remove section" hidden>×</button>' : ''}
       ${NEW_LABEL[initial.kind] ? `<button type="button" class="o-btn o-btn--ghost sm" data-ckb-new>${NEW_LABEL[initial.kind]}</button>` : ''}
     </div>
     ${bodySkeleton(initial.kind, initial.id)}`;
@@ -32,12 +33,14 @@ export function createSection(initial, ctx) {
     title: el.querySelector('.ckb-pin-title'),
     need: el.querySelector('.ckb-need'),
     count: el.querySelector('.o-group-count'),
+    remove: el.querySelector('.ckb-pin-remove'),
   };
   const chipEls = new Map();
   let current = initial;
   let renaming = false;
 
   if (dom.title) dom.title.addEventListener('click', startRename);
+  dom.remove?.addEventListener('click', () => ctx.onRemove(current.pinId));
   dom.grip.addEventListener('keydown', (e) => {
     if (!ARROWS.has(e.key)) return;
     e.preventDefault();
@@ -88,6 +91,7 @@ export function createSection(initial, ctx) {
     dom.need.hidden = !r.needYou;
     setText(dom.need, r.needYou ? `● ${r.needYou}` : '');
     setText(dom.count, String(rowsOf(r).length));
+    if (dom.remove) dom.remove.hidden = rowsOf(r).length > 0;
     if (r.kind === 'jobs') updateJobs(r);
     if (r.kind === 'other') updateChips(r.rows);
   }
