@@ -668,14 +668,6 @@ html[data-layout="desktop"] .o-frame-list .o-row.lr-row[hidden] { display: none;
 }
 .tl-step[data-collapsed="true"] .tl-content > .tl-ident { margin-bottom: 0; }
 
-/* Per-step token-launch-queue status — own row, same rhythm as .tl-ident. */
-.tl-launch {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 2px 0 8px;
-}
-
 /* ── Orchestrated step card ───────────────────────────────────────────────
    The body of a controller-owned step, in three bands (see orchestrated-card.js).
    Identity → record (`.orc-record`: PR block, dispatches, trail strip) → live

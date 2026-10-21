@@ -79,8 +79,8 @@ function orchestratedHasPrBlock(s) {
 
 // Row 1 of the live tier: identity — which controller, which repo — on the `.tl-ident` row
 // an `action` step also renders (step-card.js), same position and same category-colored
-// chip, so the two step types agree about where a step says what it is. Identity only: state
-// belongs to the status line below it and to the PR block. This used to render BELOW the
+// chip, so the two step types agree about where a step says what it is. Identity plus the
+// launch-queue pill only: state belongs to the status line below it and to the PR block. This used to render BELOW the
 // transcript tail, so you read what the controller was saying before you knew which
 // controller was saying it.
 //
@@ -89,7 +89,7 @@ function orchestratedHasPrBlock(s) {
 // 110px for the plan editor's ▲▼✎× toolbar. On desktop `.o-menu` is `display: contents`
 // (primitives.css), so this is a flat right-aligned ghost button there and a real ⋯
 // dropdown on mobile.
-function metaRowHtml(s, vm) {
+function metaRowHtml(s, vm, launch) {
   const bits = [];
   if (s.controller) {
     bits.push(`<span class="type-mono" data-cat="${escapeHtml(actionCategory(s.controller))}">${escapeHtml(actionDisplayName(s.controller))}</span>`);
@@ -105,6 +105,7 @@ function metaRowHtml(s, vm) {
   if (!orchestratedHasPrBlock(s) && s.workspace?.branch) {
     bits.push(`<span class="o-pill code">${escapeHtml(s.workspace.branch)}</span>`);
   }
+  if (launch) bits.push(launch);
   const menu = overflowHtml(vm);
   if (!bits.length && !menu) return '';
   return `<div class="tl-ident">${bits.join('')}<span class="tl-ident-spacer"></span>${menu}</div>`;
@@ -226,7 +227,7 @@ function replyDraftFor(step, vm) {
 // owns it for every other step type) so the composer can follow immediately after the tail it
 // answers. syncInlineMounts keys purely on sessionId across the whole rendered tree, so the
 // mount works identically wherever in the step it lands — it just has to appear exactly once.
-export function renderOrchestratedCard(step, { job } = {}) {
+export function renderOrchestratedCard(step, { job, launch = '' } = {}) {
   const vm = orchestratedRows(step);
   const replyDraft = replyDraftFor(step, vm);
   const dispatches = dispatchesHtml(vm);
@@ -237,7 +238,7 @@ export function renderOrchestratedCard(step, { job } = {}) {
     ${artifactTrailHtml(step, vm)}`;
   return `
     <div class="orc-card">
-      ${metaRowHtml(step, vm)}
+      ${metaRowHtml(step, vm, launch)}
       ${preapprovalsHtml(job, step)}
       ${record.trim() ? `<div class="orc-record">${record}</div>` : ''}
       ${autoApprovedHtml(step)}
