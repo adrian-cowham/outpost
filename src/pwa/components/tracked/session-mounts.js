@@ -137,7 +137,7 @@ export function createInlineMounts() {
         if (prior) prior.handle.unmount();
         const handle = driven
           ? mountSessionView(el, sessionId, { jobId: job.id, cwd: waitCwds.get(sessionId) })
-          : mountInlineSession(el, sessionId, { jobId: job.id, step, live });
+          : mountInlineSession(el, sessionId, { step, live });
         existing.set(sessionId, { el, handle, driven });
       });
 

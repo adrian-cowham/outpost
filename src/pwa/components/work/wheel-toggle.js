@@ -14,7 +14,7 @@ function isDriven(job, sessionId) {
 export function wheelButtonHtml(sessionId, driven) {
   return `<button type="button" class="o-btn o-btn--default sm step-wheel"
             data-step-action="${driven ? 'hand-back' : 'take-wheel'}"
-            data-wheel-session="${escapeHtml(sessionId)}">${driven ? 'Hand back' : 'Take the wheel'}</button>`;
+            data-wheel-session="${escapeHtml(sessionId)}">${driven ? 'Hand back' : 'Drive'}</button>`;
 }
 
 // One step's session feed. Undriven, the mount carries `data-wheel-session` so the feed puts

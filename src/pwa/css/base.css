@@ -603,58 +603,22 @@ html[data-density="roomy"] {
   50%      { opacity: 1; }
 }
 
-/* Open pill pinned to the top-right corner, riding the same row as the
-   first line of the feed. The BODY reserves the right padding for it (not
-   the container, which would push the footer's wheel button 66px in from
-   the edge and out of line with this pill). Bordered pill treatment gives
-   it a real hit area and clear affordance without the weight of a full row. */
+/* Wheel button pinned to the top-right corner, centred on the feed's first
+   row. Absolute so it adds no row of its own; the rows reserve its width. */
 .inline-session-header {
   position: absolute;
-  top: 8px;
+  top: 5px;
   right: 16px;
   z-index: 1;
-  display: flex;
-  align-items: center;
 }
-.inline-session-open {
-  font-family: var(--font-body);
-  font-size: 12px;
-  color: var(--text-mute);
-  background: var(--bg-elev);
-  border: 1px solid var(--line);
-  border-radius: var(--r-control);
-  padding: 3px 8px;
-  cursor: pointer;
-  transition: color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease), background-color var(--dur-1) var(--ease);
-}
-.inline-session-open:hover {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-
-/* Status line — what the session is doing now on the left, the wheel on the
-   right. One row, so taking over costs no vertical space of its own; it used
-   to be a button in a row above the whole feed, detached from the session it
-   acts on. Hidden when it would hold neither. */
-.inline-session-foot {
-  order: 2;
-  display: none;
-  align-items: center;
-  gap: 10px;
-  margin-top: 2px;
-}
-.step-inline-session--wheel .inline-session-foot,
-.inline-session-foot:has(.inline-session-thinking:not(:empty)) { display: flex; }
-/* Not justify-content — a finished step has no status to sit opposite, and
-   space-between would park the lone button on the left. */
-.inline-session-foot .step-wheel { margin-left: auto; }
+.step-inline-session--wheel .inline-session-body,
+.step-inline-session--wheel .inline-session-thinking { padding-right: 68px; }
 
 /* Thinking indicator. The container already sits on the darker --bg surface,
    so no separate fill/border here; just a footer line-height with the
    accent-italic label + dots + timer. */
 .inline-session-thinking:empty { display: none; }
-.inline-session-thinking { min-width: 0; }
+.inline-session-thinking { order: 2; min-width: 0; margin-top: 2px; }
 .inline-session-thinking .thinking-strip {
   border-top: 0;
   background: transparent;
@@ -668,7 +632,7 @@ html[data-density="roomy"] {
 /* Feed lines — role-tinted so the eye picks up who's speaking without
    reading the prefix (→, », ?, !, plain). Mono only for tool_use, everything
    else uses body font for tighter rhythm. */
-.inline-session-body { order: 1; display: flex; flex-direction: column; gap: 3px; padding-right: 66px; }
+.inline-session-body { order: 1; display: flex; flex-direction: column; gap: 3px; }
 .inline-session-body:empty { display: none; }
 .inline-line {
   font-size: 12px;

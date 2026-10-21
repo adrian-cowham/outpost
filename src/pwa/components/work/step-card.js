@@ -365,7 +365,7 @@ export function wireTimelineStep(el, job, s) {
         // work_job_changed, which repaints the card and discards this element.
         btn.disabled = true;
         void sessionsApi.setInteractive(sessionId, taking)
-          .catch((err) => alert(`${taking ? 'Take the wheel' : 'Hand back'} failed: ${err?.message ?? err}`))
+          .catch((err) => alert(`${taking ? 'Drive' : 'Hand back'} failed: ${err?.message ?? err}`))
           .finally(() => { btn.disabled = false; });
       }
     });

@@ -213,9 +213,9 @@ html[data-layout="mobile"] .cockpit-group:first-child { margin-top: 0; }
 .ckb-feed-repo { font-family: var(--font-mono); font-size: 11px; color: var(--text-mute); }
 .ckb-feed .step-inline-session { margin: 0; padding: 0; border: none; border-radius: 0; background: none; box-shadow: none; gap: 2px; overflow: visible; }
 .ckb-feed .step-inline-session::before { display: none; }
-.ckb-feed .inline-session-body { padding-right: 0; gap: 2px; }
+.ckb-feed .inline-session-body { gap: 2px; }
 .ckb-feed .inline-line[data-role="assistant"] { color: var(--text-mute); }
-.ckb-feed .inline-session-foot { margin-top: 0; }
+.ckb-feed .inline-session-thinking { margin-top: 0; }
 
 .ckb-body {
   border-top: 1px solid var(--line);

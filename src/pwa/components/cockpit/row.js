@@ -102,7 +102,7 @@ export function createRow(model, ctx) {
     dom.caret.setAttribute('aria-expanded', String(!!view.mode));
 
     const hide = new Set(view.hideFeeds);
-    syncFeeds(dom.feeds, m.feeds.filter((f) => !hide.has(f.sessionId)), { jobId: m.kind === 'job' ? m.id : null });
+    syncFeeds(dom.feeds, m.feeds.filter((f) => !hide.has(f.sessionId)));
 
     if (view.mode !== bodyMode) {
       body?.unmount();

@@ -57,9 +57,9 @@ export function renderDetail(mount, deps) {
       view.innerHTML = wipShellHtml(edit);
       const feedEl = view.querySelector('.lib-edit-feed-mount');
       // Reuse the shared inline-session preview (thinking strip + transcript tail +
-      // inline approval/ask cards + "Open ↗") — same component the job step cards use.
-      // No job/step context: an action-edit session is never terminal-by-step.
-      const ctl = feedEl ? mountInlineSession(feedEl, sid, { jobId: null, step: null }) : null;
+      // inline approval/ask cards) — same component the job step cards use.
+      // No step context: an action-edit session is never terminal-by-step.
+      const ctl = feedEl ? mountInlineSession(feedEl, sid, { step: null }) : null;
       feedCtl = { sid, unmount: ctl ? () => ctl.unmount() : null };
     }
     const nameEl = view.querySelector('.lib-detail-name');
