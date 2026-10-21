@@ -26,8 +26,8 @@ if [[ ! -x "$NODE_PATH" ]]; then
   exit 1
 fi
 if [[ ! -f "$TSX_PATH" ]]; then
-  echo "tsx not found at $TSX_PATH. Run 'npm install' in $PROJECT_ROOT first." >&2
-  exit 1
+  echo "Installing dependencies..."
+  npm install --prefix "$PROJECT_ROOT"
 fi
 if ! command -v expect >/dev/null; then
   echo "warning: expect(1) not installed — logging in to Claude / MCP servers from the PWA won't work." >&2

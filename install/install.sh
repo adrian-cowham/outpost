@@ -23,8 +23,8 @@ if [[ ! -x "$NODE_PATH" ]]; then
   exit 1
 fi
 if [[ ! -f "$TSX_PATH" ]]; then
-  echo "tsx not found at $TSX_PATH. Run 'npm install' in $PROJECT_ROOT first." >&2
-  exit 1
+  echo "Installing dependencies..."
+  npm install --prefix "$PROJECT_ROOT"
 fi
 
 # Build a PATH that launchd-spawned subprocesses (claude, tailscale, etc.) can use.
