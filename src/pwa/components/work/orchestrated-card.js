@@ -223,9 +223,9 @@ function replyDraftFor(step, vm) {
   return orchestratedHasPrBlock(step) && isReplyDraft(vm.controllerDraft) ? vm.controllerDraft : null;
 }
 
-// The controller's feed sits second-to-last rather than being left to step-card.js (which still
-// owns it for every other step type) so the composer can follow immediately after the tail it
-// answers. syncInlineMounts keys purely on sessionId across the whole rendered tree, so the
+// The controller's feed sits last rather than being left to step-card.js (which still owns it
+// for every other step type) so the composer can ride inside it, as the reply line under the
+// tail it answers. syncInlineMounts keys purely on sessionId across the whole rendered tree, so the
 // mount works identically wherever in the step it lands — it just has to appear exactly once.
 export function renderOrchestratedCard(step, { job, launch = '' } = {}) {
   const vm = orchestratedRows(step);
@@ -246,8 +246,7 @@ export function renderOrchestratedCard(step, { job, launch = '' } = {}) {
       ${controllerGateActionsHtml(vm)}
       ${vm.controllerDraft && !replyDraft ? renderWriteDraft(vm.controllerDraft) : ''}
       ${holding ? dispatches : ''}
-      ${stepFeedHtml(job, step)}
-      ${controllerComposerHtml(step)}
+      ${stepFeedHtml(job, step, controllerComposerHtml(step))}
     </div>`;
 }
 

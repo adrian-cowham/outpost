@@ -21,7 +21,11 @@ export function wheelButtonHtml(sessionId, driven) {
 // the control on its own status line (inline-session.js) instead of a row above it. Driven,
 // the mount is the full session view and the way out rides in the frame's bar — .sv-header is
 // the only chrome inside that view that could hold it, and it's hidden on mobile.
-export function stepFeedHtml(job, s) {
+//
+// `foot` (the controller's message box) renders inside the undriven feed as its last row —
+// mountInlineSession keeps the mount's initial children when it builds the skeleton. A driven
+// view has a composer of its own, so there it stays a sibling below the frame.
+export function stepFeedHtml(job, s, foot = '') {
   const wait = inlineWaitSession(s);
   if (wait) {
     return `
@@ -32,7 +36,7 @@ export function stepFeedHtml(job, s) {
       </div>
       <div class="step-inline-session-mount step-inline-session-mount--driven"
         data-session-id="${escapeHtml(wait.id)}" data-step-id="${escapeHtml(s.id)}"></div>
-    </div>`;
+    </div>${foot}`;
   }
   if (waitSessionOpening(job, s)) {
     return `
@@ -41,20 +45,20 @@ export function stepFeedHtml(job, s) {
       <div class="step-inline-session-mount step-inline-session-mount--driven">
         <div class="sv-empty">Connecting…</div>
       </div>
-    </div>`;
+    </div>${foot}`;
   }
-  if (!s.sessionId) return '';
+  if (!s.sessionId) return foot;
   const driven = isDriven(job, s.sessionId);
-  const mount = `<div class="step-inline-session-mount${driven ? ' step-inline-session-mount--driven' : ''}"`
-    + ` data-session-id="${escapeHtml(s.sessionId)}" data-step-id="${escapeHtml(s.id)}"`
-    + `${driven ? '' : ` data-wheel-session="${escapeHtml(s.sessionId)}"`}></div>`;
-  if (!driven) return mount;
+  const attrs = ` data-session-id="${escapeHtml(s.sessionId)}" data-step-id="${escapeHtml(s.id)}"`;
+  if (!driven) {
+    return `<div class="step-inline-session-mount"${attrs} data-wheel-session="${escapeHtml(s.sessionId)}">${foot}</div>`;
+  }
   return `
     <div class="step-drive">
       <div class="step-drive-bar">
         <span class="step-drive-label">You have the wheel</span>
         ${wheelButtonHtml(s.sessionId, true)}
       </div>
-      ${mount}
-    </div>`;
+      <div class="step-inline-session-mount step-inline-session-mount--driven"${attrs}></div>
+    </div>${foot}`;
 }

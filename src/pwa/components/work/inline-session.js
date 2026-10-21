@@ -73,6 +73,7 @@ function buildSkeleton(mount, { bare = false } = {}) {
   // child's feed and the orchestrator's carry no wheel, so they set nothing.
   const wheelSession = bare ? null : mount.dataset.wheelSession;
   if (wheelSession) mount.classList.add('step-inline-session--wheel');
+  const foot = Array.from(mount.children);
   mount.innerHTML = `
     ${bare ? '' : `<div class="inline-session-header">
       <button class="inline-session-open" type="button" aria-label="Open session in its own tab">Open ↗</button>
@@ -83,6 +84,7 @@ function buildSkeleton(mount, { bare = false } = {}) {
       ${wheelSession ? wheelButtonHtml(wheelSession, false) : ''}
     </div>
   `;
+  mount.append(...foot);
   return {
     root: mount,
     openBtn: mount.querySelector('.inline-session-open'),

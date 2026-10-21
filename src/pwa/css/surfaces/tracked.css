@@ -804,6 +804,28 @@ html[data-layout="desktop"] .o-frame-list .o-row.lr-row[hidden] { display: none;
 .orc-msg:focus-within .thread-composer-row,
 .orc-msg.is-open .thread-composer-row { display: flex; }
 
+/* Inside the feed it's the feed's last row, not a second box under it: below the thinking
+   strip (order 2), split off by a hairline, and the input borrows the feed's surface. */
+.step-inline-session > .thread-composer.orc-msg {
+  order: 3;
+  flex-direction: row;
+  align-items: flex-end;
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line-soft);
+}
+.step-inline-session > .orc-msg .thread-composer-row { flex: none; }
+.step-inline-session > .orc-msg .thread-compose-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 0;
+  background: transparent;
+  border-color: transparent;
+  border-radius: 0;
+}
+.step-inline-session > .orc-msg .thread-compose-input:focus { border-color: transparent; }
+.step-inline-session > .orc-msg:focus-within { border-top-color: var(--accent); }
+
 /* ── Record band ──────────────────────────────────────────────────────────
    Everything that accumulates rather than changes: the PR, settled dispatches,
    the paper trail. One hairline separates it from the live band BELOW it — the
