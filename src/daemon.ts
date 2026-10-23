@@ -1610,17 +1610,15 @@ async function main() {
   // through HTTP routes that are registered regardless of Linear integration.
   engine.rehydrateSessionBindings();
 
-  if (process.env.LINEAR_API_TOKEN) {
-    // Actions are already seeded + loaded at startup (see the registry construction above).
-    console.log(`[work] actions available: ${loadedActionCount}`);
-    engine.reconcileInterruptedSteps();
-    engine.reconcileWaits();
-    engine.reconcilePendingLaunches();
-    void engine.tick();
-    const n = jobQueue.list().length;
-    console.log(`[work] orchestrator started (queue: ${n} ticket${n === 1 ? '' : 's'})`);
-  } else {
-    console.log('[work] LINEAR_API_TOKEN missing from ~/.outpost/.env — work orchestrator disabled');
+  console.log(`[work] actions available: ${loadedActionCount}`);
+  engine.reconcileInterruptedSteps();
+  engine.reconcileWaits();
+  engine.reconcilePendingLaunches();
+  void engine.tick();
+  const queued = jobQueue.list().length;
+  console.log(`[work] orchestrator started (queue: ${queued} job${queued === 1 ? '' : 's'})`);
+  if (!process.env.LINEAR_API_TOKEN) {
+    console.log('[work] LINEAR_API_TOKEN missing from ~/.outpost/.env — Linear intake disabled');
   }
 
   // Reclaim worktrees whose owner is gone: a job that finished before organic completion
