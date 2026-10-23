@@ -11,7 +11,7 @@ npx tsc --noEmit     # NOT in the test gate — run this yourself
 
 The daemon binds `:8080` (loopback PWA + WS, plain HTTP), `:8443` (tailnet PWA + WS, HTTPS), and `:8444` (loopback hook endpoint). The hook endpoint is loopback-only and authenticated with a per-launch secret written into Claude's `settings.json` at startup — see `src/permissions/hook-server.ts`.
 
-[`CLAUDE.md`](../CLAUDE.md) is the real orientation document for working inside this repo: the permission model rule by rule, the controller loop's guards and why each exists, where new code goes, and the gotchas that have already bitten. Read it before changing anything under `src/permissions/` or `src/work/`.
+[`CLAUDE.md`](../CLAUDE.md) is the orientation document for working inside this repo: concepts, where new code goes, and the invariants that are easy to break. The reasoning behind them lives in [`design/`](design/): the permission model rule by rule, the controller loop's guards and why each exists, and the gotchas that have already bitten. Read the matching design doc before changing anything under `src/permissions/` or `src/work/`.
 
 ## Running side-by-side with the installed daemon
 

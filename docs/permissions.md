@@ -29,4 +29,4 @@ Two files govern what runs without asking, and they answer different questions:
 
 Both are gitignored per checkout, so rules you add in a dev worktree don't leak into your real install.
 
-The full rule-by-rule model is in [`CLAUDE.md`](../CLAUDE.md#permission-groups).
+The full rule-by-rule model is in [`design/permissions.md`](design/permissions.md).

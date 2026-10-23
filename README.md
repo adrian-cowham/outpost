@@ -29,6 +29,8 @@ Open `http://localhost:8080`. Outpost runs in the background from now on, starts
 
 GitHub features (PRs, CI, review comments) need the [GitHub CLI](https://cli.github.com) logged in: `brew install gh && gh auth login`.
 
+Linear features (hourly intake of your assigned tickets as jobs, ticket state updates) need a personal API key from Linear › Settings › Security & access, added to `~/.outpost/.env` as `LINEAR_API_TOKEN=lin_api_...`, then `launchctl kickstart -k gui/$UID/local.outpost.$USER`. See [configuration](docs/configuration.md).
+
 ## Docs
 
 [features](docs/features.md) · [remote access](docs/remote-access.md) · [permissions](docs/permissions.md) · [configuration, updates & uninstall](docs/configuration.md) · [Linux / WSL2](docs/linux-wsl.md) · [development](docs/development.md)
