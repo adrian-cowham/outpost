@@ -16,6 +16,8 @@ install/install.sh
 
 Open `http://localhost:8080`. Outpost runs in the background from now on, starts at login, and restarts if it crashes.
 
+Port 8080 taken by something else? Re-run with another port, e.g. `OUTPOST_HTTP_PORT=8090 install/install.sh`. The installer saves it to `~/.outpost/.env`, so the background service keeps using it.
+
 ## What you get
 
 - **One inbox for everything waiting on you** — approvals, plans to review, PRs ready to merge, and anything that broke, next to what's running now. [features →](docs/features.md)

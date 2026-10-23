@@ -43,6 +43,11 @@ launchctl unload "$PLIST_PATH" 2>/dev/null || true
 pkill -f "tsx src/daemon.ts" 2>/dev/null || true
 sleep 1
 
+# shellcheck source=ports.sh
+source "$PROJECT_ROOT/install/ports.sh"
+persist_port_overrides
+check_ports_free
+
 # sed with | as delimiter so file paths with / don't have to be escaped.
 # awk handles the multiline __EXTRA_ENV__ replacement that sed can't do cleanly.
 sed \
@@ -69,6 +74,7 @@ if launchctl list | grep -q "$PLIST_LABEL"; then
     exit 1
   fi
   echo "✓ $PLIST_LABEL loaded (pid $PID)"
+  print_open_url
   echo "  logs:  $HOME/Library/Logs/outpost.{log,err.log}"
   echo "  stop:  launchctl unload $PLIST_PATH"
   echo "  start: launchctl load $PLIST_PATH"

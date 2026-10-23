@@ -42,6 +42,8 @@ Anything else (`OUTPOST_CERT_PATH`, `OUTPOST_KEY_PATH`, `OUTPOST_ALLOWLIST_PATH`
 
 `install/install.sh` writes `~/Library/LaunchAgents/local.outpost.$USER.plist` and loads it. Re-run it any time; it replaces the running instance. It finds every project under `~/.claude/projects/` on its own, so there's no workspace to pick.
 
+Before loading, the installer refuses to start if one of Outpost's ports is already in use, and names the process holding it. Any `OUTPOST_HTTP_PORT` / `OUTPOST_HTTPS_PORT` / `OUTPOST_HOOK_PORT` set on the install command line is saved to `~/.outpost/.env`, so `OUTPOST_HTTP_PORT=8090 install/install.sh` changes the port for good.
+
 - **Logs:** `~/Library/Logs/outpost.{log,err.log}`
 - **Restart:** `launchctl kickstart -k gui/$UID/local.outpost.$USER`
 - **Sleep:** Outpost is only reachable while the Mac is awake. The service blocks idle sleep while plugged in, but closing the lid without an external display still sleeps the machine.
