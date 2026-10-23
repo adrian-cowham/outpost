@@ -273,9 +273,11 @@ export function cockpitBoard({
 export function stabilizeOrder(prevKeys, keys, pinned) {
   if (!prevKeys || !pinned.size) return keys;
   const present = new Set(keys);
+  // Slots count only surviving rows, so a removal above a held row shifts it up instead of backfilling
   const held = prevKeys
+    .filter((k) => present.has(k))
     .map((k, i) => [k, i])
-    .filter(([k]) => pinned.has(k) && present.has(k));
+    .filter(([k]) => pinned.has(k));
   const heldKeys = new Set(held.map(([k]) => k));
   const out = keys.filter((k) => !heldKeys.has(k));
   for (const [k, i] of held) out.splice(Math.min(i, out.length), 0, k);

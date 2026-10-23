@@ -200,6 +200,10 @@ describe('stabilizeOrder', () => {
   it('drops a pinned row that left', () => {
     expect(stabilizeOrder(['a', 'b'], ['b'], new Set(['a']))).toEqual(['b']);
   });
+  it('moves a pinned row up when a row above it leaves, rather than backfilling', () => {
+    expect(stabilizeOrder(['a', 'b', 'c'], ['b', 'c'], new Set(['b']))).toEqual(['b', 'c']);
+    expect(stabilizeOrder(['a', 'b', 'c'], ['c', 'b'], new Set(['b']))).toEqual(['b', 'c']);
+  });
   it('has nothing to hold on first paint', () => {
     expect(stabilizeOrder(null, ['b', 'a'], new Set(['a']))).toEqual(['b', 'a']);
   });
