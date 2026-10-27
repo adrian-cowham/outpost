@@ -58,7 +58,7 @@ import { readMergeReadiness } from './merge-readiness.js';
 import { readRerunReadiness } from './rerun-readiness.js';
 import { clampToCeiling, describePreapprovals, effectivePreapprovals } from './preapprovals.js';
 import { runGh as defaultRunGh, type RunGh } from '../integrations/gh-cli.js';
-import { gitMergingFromBase } from '../git/git-ops.js';
+import { gitHasUnpushedWork, gitMergingFromBase } from '../git/git-ops.js';
 import { reviewersForCwd } from '../git/pr-reviewers.js';
 import {
   currentDraftForRaiser, matchPinnedCall, writeGateFor,
@@ -2237,6 +2237,22 @@ export class WorkEngine {
     if (!this.jobAcceptsStepWork(jobId)) return;
     applyMove(this.orchestratedHost(), jobId, stepId, p);
     this.syncOrchestratedWake(jobId, stepId);
+    void this.refreshUnpushedWork(jobId, stepId);
+  }
+
+  // What PrWatcher reads into `pr.hasUnpushedWork`; undefined for a step with no live worktree
+  async readUnpushedWork(stepId: string): Promise<boolean | undefined> {
+    const rec = this.opts.worktreeManager.get(stepId);
+    if (!rec || rec.archivedAt) return undefined;
+    return gitHasUnpushedWork(rec.worktreePath);
+  }
+
+  // A controller that just parked on "push this" can't wait for the watcher's next sweep to say so
+  private async refreshUnpushedWork(jobId: string, stepId: string): Promise<void> {
+    const s = this.opts.queue.get(jobId)?.steps.find((x) => x.id === stepId);
+    if (s?.type !== 'orchestrated' || s.workspace.kind !== 'writable') return;
+    const has = await this.readUnpushedWork(stepId);
+    if (has !== undefined) this.applyPrFacts(jobId, stepId, { hasUnpushedWork: has });
   }
 
   pushStepInbox(jobId: string, stepId: string, item: NewItem): void {

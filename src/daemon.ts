@@ -627,7 +627,9 @@ async function main() {
     fire: (id) => scheduler.fireTokenOpportunistic(id),
   });
 
-  const prWatcher = new PrWatcher({ queue: jobQueue, engine });
+  const prWatcher = new PrWatcher({
+    queue: jobQueue, engine, unpushedWork: (stepId) => engine.readUnpushedWork(stepId),
+  });
   const prFilePatches = new PrFilePatches();
   const userPrsWatcher = new UserPrsWatcher({
     statePath: join(RUNTIME_DIR, 'user-prs.json'),

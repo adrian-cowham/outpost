@@ -558,6 +558,17 @@ export async function gitRemoteBranchHead(cwd: string, branch: string): Promise<
   return /^([0-9a-f]{40,64})\s/m.exec(res.stdout)?.[1];
 }
 
+// Whether the worktree holds edits, or commits no origin ref has — work only the user's push
+// can land. Undefined when git can't answer, which callers must not read as "nothing to push".
+export async function gitHasUnpushedWork(cwd: string): Promise<boolean | undefined> {
+  const status = await runGit(cwd, ['status', '--porcelain']);
+  if (!status.ok) return undefined;
+  if (status.stdout.trim()) return true;
+  const ahead = await runGit(cwd, ['rev-list', '--count', 'HEAD', '--not', '--remotes=origin']);
+  if (!ahead.ok) return undefined;
+  return Number(ahead.stdout.trim()) > 0;
+}
+
 // Conservative "is there an open PR on this branch?" probe. Returns true when gh
 // reports one — and ALSO true when we can't tell (bad name, gh error), so callers
 // default to plain-append and never risk a duplicate/erroring `gh pr create`.
