@@ -402,12 +402,13 @@ async function main() {
       scheduleSessionsChangedBroadcast();
     },
     onAuthFailure: (sessionId, message) => noteAuthFailure(sessionId, message),
-    onSessionExit: (sessionId, code) => {
+    onSessionExit: (sessionId, code, exit) => {
       // Session-scoped allow rules die with the session's process.
       allowlist.clearSession(sessionId);
       // A crash / idle-reap fires no Stop hook, so the Stop-handler slot release never runs —
       // free any governor slot this session held here too (idempotent; a plain active.delete).
       engine.releaseLaunchSlot(sessionId);
+      engine.onSessionExit(sessionId, code, exit);
       // Scheduler has no visibility into session completion on its own; a schedule-spawned
       // skill session (see createSpawnDeps.spawnSkillSession) finishing is exactly this event.
       // No-op (via findRunByRef) for any session the scheduler didn't spawn.

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { JobQueue } from './work-queue.js';
 import type { DraftVerdictDetail } from './draft-verdict.js';
-import type { SessionManager } from '../session/session-manager.js';
+import type { SessionManager, SessionExit } from '../session/session-manager.js';
 import type { WorktreeManager, WorktreeRecord } from '../git/worktree-manager.js';
 import type { LinearWriter } from '../integrations/linear-writer.js';
 import type {
@@ -705,9 +705,16 @@ export class WorkEngine {
     }
   }
 
-  // No-op stub kept for parity with the prior interface. Session role bookkeeping
-  // is in-memory only; on daemon restart all child sessions die anyway.
-  onSessionExit(_sessionId: string, _code: number | null): void { /* intentionally empty */ }
+  // A crash fires no Stop hook, so without this a step whose subprocess died stays `running` forever.
+  onSessionExit(sessionId: string, code: number | null, exit: SessionExit): void {
+    if (exit.expected) return;
+    const target = this.unresolvedFailable(sessionId);
+    if (!target) return;
+    this.cancelUnresolvedCheck(sessionId);
+    const tail = exit.stderrTail.trim().split('\n').slice(-5).join('\n');
+    this.onStepFailed(target.jobId, target.stepId,
+      `session exited unexpectedly (code ${code ?? 'none'})${tail ? `: ${tail}` : ''}`, { journal: false });
+  }
 
   private async tickOne(jobId: string): Promise<void> {
     let j = this.opts.queue.get(jobId);
