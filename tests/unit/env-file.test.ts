@@ -177,6 +177,33 @@ describe('loadEnvFile', () => {
     expect(String(warn.mock.calls[0]![0])).toContain('timed out');
   });
 
+  it('waits out one timeout per load, not one per reference', () => {
+    const opBin = writeFakeOp(`exec sleep 5`);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const path = envFile('FAKE_A=op://Employee/a/password\nFAKE_B=op://Employee/b/password\nFAKE_C=op://Employee/c/password\n');
+
+    const started = Date.now();
+    expect(loadEnvFile(path, { opBin, opTimeoutMs: 400 })).toBe(0);
+
+    // Three sequential timeouts would take at least 1200ms.
+    expect(Date.now() - started).toBeLessThan(1000);
+    const messages = warn.mock.calls.map((c) => String(c[0]));
+    expect(messages).toHaveLength(3);
+    expect(messages[1]).toContain('FAKE_B');
+    expect(messages[2]).toContain('skipped, timed out');
+  });
+
+  it('keeps reading after a refusal, since op can reject one reference and resolve the next', () => {
+    const opBin = writeFakeOp(`[ "$2" = op://Employee/a/password ] && { echo 'no such item' >&2; exit 1; }\nprintf '%s\\n' ${JSON.stringify(FAKE_VALUE)}`);
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const path = envFile('FAKE_A=op://Employee/a/password\nFAKE_B=op://Employee/b/password\n');
+
+    expect(loadEnvFile(path, { opBin })).toBe(1);
+
+    expect(process.env.FAKE_B).toBe(FAKE_VALUE);
+    expect(opCalls()).toHaveLength(2);
+  });
+
   it('stays quiet on a load where every reference resolves', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const path = envFile('FAKE_A=op://Employee/linearkey/password\n');

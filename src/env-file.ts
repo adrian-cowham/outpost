@@ -108,20 +108,28 @@ export function loadEnvFile(path: string, opts: LoadEnvFileOptions = {}): number
   const opTimeoutMs = opts.opTimeoutMs ?? OP_READ_TIMEOUT_MS;
   const strict = process.env.OUTPOST_ENV_STRICT === '1';
   const secrets = new Map<string, string>();
+  let timedOut: string | undefined;
   for (const ref of keysByRef.keys()) {
-    try {
-      const out = execFileSync(opBin, ['read', ref], {
-        encoding: 'utf8',
-        timeout: opTimeoutMs,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-      // One trailing newline only: a secret may legitimately end in whitespace.
-      secrets.set(ref, out.replace(/\r?\n$/, ''));
-    } catch (err) {
-      const message = `[env] could not resolve ${ref} for ${keysByRef.get(ref)!.join(', ')}: ${describeOpFailure(err, opTimeoutMs)}`;
-      if (strict) throw new Error(message);
-      console.warn(message);
+    let failure = timedOut;
+    if (failure === undefined) {
+      try {
+        const out = execFileSync(opBin, ['read', ref], {
+          encoding: 'utf8',
+          timeout: opTimeoutMs,
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        // One trailing newline only: a secret may legitimately end in whitespace.
+        secrets.set(ref, out.replace(/\r?\n$/, ''));
+        continue;
+      } catch (err) {
+        failure = describeOpFailure(err, opTimeoutMs);
+        // An unanswered unlock prompt would time out every remaining read too, one full timeout each.
+        if ((err as { signal?: string } | null)?.signal) timedOut = `skipped, ${failure}`;
+      }
     }
+    const message = `[env] could not resolve ${ref} for ${keysByRef.get(ref)!.join(', ')}: ${failure}`;
+    if (strict) throw new Error(message);
+    console.warn(message);
   }
 
   for (const [key, value] of entries) {
