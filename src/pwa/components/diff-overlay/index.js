@@ -34,6 +34,8 @@ import {
 } from '../../state/git.js';
 import { worktreeChanges } from '../../state/worktree-changes.js';
 import { formatDiffReviewMessage as formatDiffReviewMessageShared } from '../diff-review-format.js';
+import { gapsFor, gapRows, lastNewLine } from '../../utils/diff-gaps.js';
+import { buildFileTree } from '../../utils/file-tree.js';
 import { makeSheetDismissible, noteSheetOpen, noteSheetClose, confirmInSheet } from '../sheet-utils.js';
 
 let _deps = {
@@ -216,7 +218,9 @@ async function openDiffOverlay(opts = {}) {
   diffState.ctx = buildDiffContext({ sessionId, jobId: opts.jobId, stepId: opts.stepId });
   diffState.comments.clear();
   diffState.openDraftKey = null;
+  diffState.draftRange = null;
   diffState.collapsed.clear();
+  diffState.collapsedDirs.clear();
   diffState.filter = '';
   diffState.hoveredRowKey = null;
   diffState.refs.branch = currentSessionBranchHint(sessionId);
@@ -347,7 +351,13 @@ function wireOverlayEvents(m) {
 function onGlobalKeydown(e) {
   if (!getMount()?.firstElementChild) return; // overlay not open
   const typing = e.target.closest('input, textarea, [contenteditable="true"]');
-  if (e.key === 'Escape' && !typing) { closeDiffOverlay(); return; }
+  if (e.key === 'Escape') { onEscape(e, typing); return; }
+  if (keymap.matches(e, 'diff.commentExtend') && !typing && diffState.hoveredRowKey && diffState.draftRange) {
+    e.preventDefault();
+    const row = findRowByKey(diffState.hoveredRowKey);
+    if (row) extendDraftTo(row);
+    return;
+  }
   if (keymap.matches(e, 'diff.comment') && !typing && diffState.hoveredRowKey && !diffState.openDraftKey) {
     e.preventDefault();
     const row = getMount().querySelector(`.dr-row[data-key="${cssEscape(diffState.hoveredRowKey)}"]`);
@@ -365,6 +375,25 @@ function onGlobalKeydown(e) {
     diffState.commit.autoFilled = true;
     renderFooter();
   }
+}
+
+// Each Escape backs out one level — leave the draft's textarea, stop range-picking, drop the draft — before it closes the overlay.
+function onEscape(e, typing) {
+  const form = getMount().querySelector('.dr-comment-form');
+  if (typing) {
+    if (form?.contains(e.target)) form.querySelector('.dr-comment-range-toggle')?.focus();
+    return;
+  }
+  if (diffState.draftRange?.selecting) { setRangeSelecting(form, false); return; }
+  if (form) {
+    const { editingKey } = diffState.draftRange ?? {};
+    const card = form.closest('.dr-file-card');
+    form.querySelector('.dr-comment-cancel')?.click();
+    const chip = editingKey && card.querySelector(`.dr-comment-card[data-key="${cssEscape(editingKey)}"]`);
+    (chip?.querySelector('.dr-comment-link') ?? card.querySelector('.dr-file-card-head'))?.focus({ preventScroll: true });
+    return;
+  }
+  closeDiffOverlay();
 }
 
 function rowKey(row) { return diffCommentKey(row.dataset.file, row.dataset.side, row.dataset.line); }
@@ -444,6 +473,7 @@ function switchCompareMode(mode) {
   renderCompareModes();
   diffState.comments.clear();
   diffState.openDraftKey = null;
+  diffState.draftRange = null;
   diffState.collapsed.clear();
   clearDiffSendWarning();
   const logEl = getMount().querySelector('#dr-log');
@@ -491,7 +521,11 @@ async function fetchAndRenderDiff() {
     diffState.mode = 'worktree';
     return fetchAndRenderDiff();
   }
-  diffState.files = payload.files || [];
+  diffState.fullFiles.clear();
+  diffState.openDraftKey = null;
+  diffState.draftRange = null;
+  // Bytewise, as git orders tracked files; untracked ones arrive appended and would break the rail's tree order.
+  diffState.files = (payload.files || []).sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   renderDiffFileList();
   renderDiffContent();
   renderHeaderStats();
@@ -532,18 +566,20 @@ function renderDiffFileList() {
     list.innerHTML = `<div class="dr-empty">${diffState.files.length === 0 ? 'No changes.' : 'No files match.'}</div>`;
     return;
   }
-  list.innerHTML = files.map((f) => {
-    const dotClass = f.untracked ? 'new' : (f.status === 'deleted' ? 'deleted' : f.status === 'added' ? 'new' : 'modified');
-    const stats = fileStats(f);
-    return `<div class="dr-file-row" data-file="${escapeHtml(f.path)}">
-      <span class="dr-dot ${dotClass}"></span>
-      <span class="dr-file-name">${escapeHtml(f.path)}</span>
-      <span class="dr-file-stats">${stats}</span>
-      <span class="dr-file-comments" data-file-badge="${escapeHtml(f.path)}" hidden>0</span>
-    </div>`;
-  }).join('');
+  const rows = [];
+  const walk = (nodes) => {
+    for (const n of nodes) {
+      if (n.kind === 'file') { rows.push(fileRowHtml(n)); continue; }
+      const open = Boolean(q) || !diffState.collapsedDirs.has(n.path);
+      rows.push(dirRowHtml(n, open, Boolean(q)));
+      if (open) walk(n.children);
+    }
+  };
+  walk(buildFileTree(files));
+  list.innerHTML = rows.join('');
+  for (const el of list.querySelectorAll('.dr-dir-row')) onActivate(el, () => toggleDir(el.dataset.dir));
   for (const el of list.querySelectorAll('.dr-file-row')) {
-    el.addEventListener('click', () => {
+    onActivate(el, () => {
       const path = el.dataset.file;
       if (diffState.collapsed.has(path)) {
         diffState.collapsed.delete(path);
@@ -553,13 +589,49 @@ function renderDiffFileList() {
         ?.scrollIntoView({ block: 'start', behavior: 'smooth' });
     });
   }
+  updateDiffCommentBadges();
 }
 
-function fileStats(f) {
-  let add = 0; let del = 0;
-  for (const h of f.hunks ?? []) for (const r of h.rows ?? []) {
-    if (r.op === '+') add++; else if (r.op === '-') del++;
-  }
+function onActivate(el, fn) {
+  el.addEventListener('click', fn);
+  el.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    fn();
+  });
+}
+
+function toggleDir(path) {
+  if (diffState.filter.trim()) return;
+  if (diffState.collapsedDirs.has(path)) diffState.collapsedDirs.delete(path);
+  else diffState.collapsedDirs.add(path);
+  renderDiffFileList();
+  getMount()?.querySelector(`.dr-dir-row[data-dir="${cssEscape(path)}"]`)?.focus();
+}
+
+// While filtering every directory is forced open, so its toggle is shown as disabled rather than silently ignored.
+function dirRowHtml(n, open, filtering) {
+  const toggle = filtering ? 'aria-disabled="true"' : 'tabindex="0"';
+  return `<div class="dr-dir-row" data-dir="${escapeHtml(n.path)}" style="--depth:${n.depth}" title="${escapeHtml(n.path)}/" role="button" ${toggle} aria-expanded="${open}">
+    <span class="dr-dir-caret" aria-hidden="true"></span>
+    <span class="dr-dir-name">${escapeHtml(n.name)}/</span>
+    <span class="dr-file-stats">${statsHtml(n.add, n.del)}</span>
+    <span class="dr-file-comments" data-dir-badge="${escapeHtml(n.path)}" hidden>0</span>
+  </div>`;
+}
+
+function fileRowHtml(n) {
+  const f = n.file;
+  const dotClass = f.untracked ? 'new' : (f.status === 'deleted' ? 'deleted' : f.status === 'added' ? 'new' : 'modified');
+  return `<div class="dr-file-row" data-file="${escapeHtml(f.path)}" style="--depth:${n.depth}" title="${escapeHtml(f.path)}" role="button" tabindex="0">
+    <span class="dr-dot ${dotClass}"></span>
+    <span class="dr-file-name">${escapeHtml(n.name)}</span>
+    <span class="dr-file-stats">${statsHtml(n.add, n.del)}</span>
+    <span class="dr-file-comments" data-file-badge="${escapeHtml(f.path)}" hidden>0</span>
+  </div>`;
+}
+
+function statsHtml(add, del) {
   const bits = [];
   if (add) bits.push(`<span class="dr-stat-add">+${add}</span>`);
   if (del) bits.push(`<span class="dr-stat-del">−${del}</span>`);
@@ -617,8 +689,184 @@ function renderDiffFileHtml(f, isMobile) {
       : 'No changes.';
     return `<section class="${cls}" data-file="${escapeHtml(f.path)}">${head}<div class="dr-untracked-note">${note}</div></section>`;
   }
-  const hunks = f.hunks.map((h) => renderDiffHunkHtml(f.path, h, isMobile)).join('');
-  return `<section class="${cls}" data-file="${escapeHtml(f.path)}">${head}${hunks}</section>`;
+  const gaps = isExpandable(f) ? gapsFor(f.hunks) : [];
+  const parts = f.hunks.map((h, i) => {
+    const gap = gaps.find((g) => g.at === i);
+    // The bar carries this hunk's @@ line, so rows revealed upward never land beneath a header that no longer describes them.
+    return gap
+      ? gapBarHtml(f, gap, h) + renderRowsHtml(f.path, h.rows, isMobile)
+      : renderDiffHunkHtml(f.path, h, isMobile);
+  });
+  const trailing = gaps.find((g) => g.at === f.hunks.length);
+  if (trailing) parts.push(gapBarHtml(f, trailing, null));
+  return `<section class="${cls}" data-file="${escapeHtml(f.path)}">${head}${parts.join('')}</section>`;
+}
+
+// Added, deleted and untracked files already show every line, so there is nothing to expand.
+function isExpandable(f) {
+  return !f.binary && !f.untracked && !f.truncated && f.hunks.length > 0
+    && (f.status === 'modified' || f.status === 'renamed' || f.status === 'copied');
+}
+
+const EXPAND_STEP = 20;
+const SHOW_ALL_MAX = 200;
+
+function hunkHeaderText(h) {
+  return `@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`;
+}
+
+function hunkAttrs(h) {
+  return `data-old-start="${h.oldStart}" data-old-lines="${h.oldLines}" data-new-start="${h.newStart}" data-new-lines="${h.newLines}"`;
+}
+
+function gapBarHtml(f, gap, hunk) {
+  const kind = gap.at === 0 ? 'lead' : gap.to === null ? 'trail' : 'mid';
+  const oldPath = f.oldPath ? ` data-old-path="${escapeHtml(f.oldPath)}"` : '';
+  const header = hunk ? hunkHeaderText(hunk) : '';
+  return `<div class="dr-gap" tabindex="-1" data-file="${escapeHtml(f.path)}"${oldPath} data-gap="${kind}" data-header="${escapeHtml(header)}"
+    ${hunk ? hunkAttrs(hunk) : ''} data-from="${gap.from}" data-to="${gap.to ?? ''}">${gapBarInnerHtml(kind, gap.from, gap.to, header)}</div>`;
+}
+
+// Revealed context joins a hunk, so that hunk's @@ line must widen to keep describing the rows beneath it.
+function adjustHunkHeader(el, { shift = 0, oldLines = 0, newLines = 0 }) {
+  if (!el) return;
+  const d = el.dataset;
+  const h = {
+    oldStart: Number(d.oldStart) - shift,
+    oldLines: Number(d.oldLines) + oldLines,
+    newStart: Number(d.newStart) - shift,
+    newLines: Number(d.newLines) + newLines,
+  };
+  Object.assign(d, { oldStart: h.oldStart, oldLines: h.oldLines, newStart: h.newStart, newLines: h.newLines });
+  const text = hunkHeaderText(h);
+  if (el.classList.contains('dr-gap')) {
+    d.header = text;
+    const span = el.querySelector('.dr-gap-hdr');
+    if (span) span.textContent = text;
+  } else {
+    el.textContent = text;
+  }
+}
+
+function previousHunkHeader(bar) {
+  for (let el = bar.previousElementSibling; el; el = el.previousElementSibling) {
+    if (el.matches('.dr-hunk-hdr, .dr-gap[data-new-start]')) return el;
+  }
+  return null;
+}
+
+function gapBarInnerHtml(kind, from, to, header, note = '') {
+  const hidden = to === null ? null : to - from + 1;
+  const btn = (dir, label, aria) =>
+    `<button type="button" class="o-btn o-btn--ghost sm dr-gap-btn" data-expand="${dir}" aria-label="${aria}">${label}</button>`;
+  const buttons = [];
+  if (kind !== 'trail') buttons.push(btn('up', `↑ Expand ${EXPAND_STEP}`, `Show ${EXPAND_STEP} more lines above`));
+  if (kind !== 'lead') buttons.push(btn('down', `↓ Expand ${EXPAND_STEP}`, `Show ${EXPAND_STEP} more lines below`));
+  if (hidden !== null && hidden <= SHOW_ALL_MAX) buttons.push(btn('all', 'Show all', `Show all ${hidden} hidden lines`));
+  const hdr = header ? `<span class="dr-gap-hdr">${escapeHtml(header)}</span>` : '';
+  const noteHtml = note ? `<span class="dr-gap-note is-error" role="status">${note}</span>` : '';
+  const count = hidden === null ? '' : `<span class="dr-gap-count">${hidden} hidden line${hidden === 1 ? '' : 's'}</span>`;
+  return hdr + buttons.join('') + noteHtml + count;
+}
+
+function loadFullFile(path, oldPath) {
+  const key = `${diffState.mode}:${path}`;
+  let pending = diffState.fullFiles.get(key);
+  if (pending) return pending;
+  const qs = new URLSearchParams({ mode: diffState.mode, path });
+  if (oldPath) qs.set('oldPath', oldPath);
+  pending = fetch(`/api/sessions/${encodeURIComponent(diffState.ctx.sessionId)}/diff/file?${qs}`)
+    .then((r) => (r.ok ? r.json() : null))
+    .then((body) => body?.file ?? null)
+    .catch(() => null)
+    .then((file) => {
+      if (!file) diffState.fullFiles.delete(key);
+      return file;
+    });
+  diffState.fullFiles.set(key, pending);
+  return pending;
+}
+
+// Inserts only the revealed rows next to the bar — the rest of the viewport is never repainted.
+async function expandGap(btn) {
+  const bar = btn.closest('.dr-gap');
+  const { file, oldPath, gap: kind } = bar.dataset;
+  const pressed = btn.dataset.expand;
+  // Show all on a leading gap reveals rows above its hunk, which is the upward case.
+  const dir = pressed === 'all' && kind === 'lead' ? 'up' : pressed;
+  let from = Number(bar.dataset.from);
+  let to = bar.dataset.to === '' ? null : Number(bar.dataset.to);
+  for (const b of bar.querySelectorAll('.dr-gap-btn')) b.disabled = true;
+  const full = await loadFullFile(file, oldPath);
+  if (!bar.isConnected) return;
+  if (!full) {
+    bar.innerHTML = gapBarInnerHtml(kind, from, to, bar.dataset.header, 'Couldn\'t load more context');
+    refocusGap(bar, pressed);
+    return;
+  }
+  const loaded = lastNewLine(full);
+  if (to === null) to = loaded;
+  const [a, b] = pressed === 'all' ? [from, to]
+    : dir === 'up' ? [Math.max(from, to - EXPAND_STEP + 1), to]
+    : [from, Math.min(to, from + EXPAND_STEP - 1)];
+  // Rows past a truncated load aren't contiguous with the hunk below, so nothing can be shown above it.
+  if (full.truncated && dir === 'up' && to > loaded) {
+    showRestNotLoaded(bar);
+    return;
+  }
+  const rows = gapRows(full, a, Math.min(b, loaded));
+  bar.insertAdjacentHTML(dir === 'up' ? 'afterend' : 'beforebegin', renderRowsHtml(file, rows, !isDesktop(), ' dr-expanded'));
+  const grown = { oldLines: rows.length, newLines: rows.length };
+  if (dir === 'up') adjustHunkHeader(bar.dataset.header ? bar : null, { ...grown, shift: rows.length });
+  else adjustHunkHeader(previousHunkHeader(bar), grown);
+  if (full.truncated && b >= loaded) {
+    showRestNotLoaded(bar);
+    return;
+  }
+  if (dir === 'up') to = a - 1; else from = b + 1;
+  if (from > to) {
+    closeGap(bar);
+    return;
+  }
+  bar.dataset.from = String(from);
+  bar.dataset.to = String(to);
+  bar.innerHTML = gapBarInnerHtml(kind, from, to, bar.dataset.header);
+  refocusGap(bar, pressed);
+}
+
+function showRestNotLoaded(bar) {
+  const header = bar.dataset.header;
+  bar.innerHTML = (header ? `<span class="dr-gap-hdr">${escapeHtml(header)}</span>` : '')
+    + '<span class="dr-gap-note" role="status">Rest of file not loaded</span>';
+  bar.focus({ preventScroll: true });
+}
+
+// Nothing hidden is left between the two hunks, so they become one; a leading gap has no hunk above and keeps its own header.
+function closeGap(bar) {
+  const d = bar.dataset;
+  const prev = previousHunkHeader(bar);
+  let focusTarget = prev;
+  if (d.header && prev) {
+    adjustHunkHeader(prev, { oldLines: Number(d.oldLines), newLines: Number(d.newLines) });
+    bar.remove();
+  } else if (d.header) {
+    const hdr = document.createElement('div');
+    hdr.className = 'dr-hunk-hdr';
+    hdr.tabIndex = -1;
+    Object.assign(hdr.dataset, { oldStart: d.oldStart, oldLines: d.oldLines, newStart: d.newStart, newLines: d.newLines });
+    hdr.textContent = d.header;
+    bar.replaceWith(hdr);
+    focusTarget = hdr;
+  } else {
+    const card = bar.closest('.dr-file-card');
+    bar.remove();
+    focusTarget ??= card.querySelector('.dr-file-card-head');
+  }
+  focusTarget?.focus({ preventScroll: true });
+}
+
+function refocusGap(bar, dir) {
+  (bar.querySelector(`.dr-gap-btn[data-expand="${dir}"]`) ?? bar.querySelector('.dr-gap-btn'))?.focus();
 }
 
 function isFileStaged(path) {
@@ -679,30 +927,33 @@ async function stageFileImpl(sessionId, path, action) {
 }
 
 function renderDiffHunkHtml(filePath, h, isMobile) {
-  const header = `<div class="dr-hunk-hdr">@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@</div>`;
+  return `<div class="dr-hunk-hdr" tabindex="-1" ${hunkAttrs(h)}>${hunkHeaderText(h)}</div>` + renderRowsHtml(filePath, h.rows, isMobile);
+}
+
+function renderRowsHtml(filePath, rows, isMobile, extraCls = '') {
   if (isMobile) {
-    return `${header}<div class="dr-hunk-unified">${h.rows.map((r) => renderUnifiedRowHtml(filePath, r)).join('')}</div>`;
+    return `<div class="dr-hunk-unified${extraCls}">${rows.map((r) => renderUnifiedRowHtml(filePath, r)).join('')}</div>`;
   }
   const left = []; const right = [];
   let i = 0;
-  while (i < h.rows.length) {
-    const r = h.rows[i];
+  while (i < rows.length) {
+    const r = rows[i];
     if (r.op === ' ') {
       left.push(renderSplitRowHtml(filePath, 'old', ' ', r.content, r.oldLine));
       right.push(renderSplitRowHtml(filePath, 'new', ' ', r.content, r.newLine));
       i++; continue;
     }
     const dels = [];
-    while (i < h.rows.length && h.rows[i].op === '-') { dels.push(h.rows[i]); i++; }
+    while (i < rows.length && rows[i].op === '-') { dels.push(rows[i]); i++; }
     const adds = [];
-    while (i < h.rows.length && h.rows[i].op === '+') { adds.push(h.rows[i]); i++; }
+    while (i < rows.length && rows[i].op === '+') { adds.push(rows[i]); i++; }
     for (let k = 0; k < Math.max(dels.length, adds.length); k++) {
       const d = dels[k]; const a = adds[k];
       left.push(d ? renderSplitRowHtml(filePath, 'old', '-', d.content, d.oldLine) : '<div class="dr-row dr-row-empty"></div>');
       right.push(a ? renderSplitRowHtml(filePath, 'new', '+', a.content, a.newLine) : '<div class="dr-row dr-row-empty"></div>');
     }
   }
-  return `${header}<div class="dr-hunk-split"><div>${left.join('')}</div><div>${right.join('')}</div></div>`;
+  return `<div class="dr-hunk-split${extraCls}"><div>${left.join('')}</div><div>${right.join('')}</div></div>`;
 }
 
 function renderUnifiedRowHtml(filePath, r) {
@@ -729,6 +980,8 @@ function activeCommentCount() { return diffState.comments.size; }
 function onDiffContentClick(e) {
   if (e.target.closest('.dr-comment-card') || e.target.closest('.dr-comment-form')) return;
   if (e.target.closest('.dr-file-stage')) return;
+  const gapBtn = e.target.closest('.dr-gap-btn');
+  if (gapBtn) { void expandGap(gapBtn); return; }
   const discardBtn = e.target.closest('.dr-file-discard');
   if (discardBtn) { void discardFile(discardBtn.dataset.discard); return; }
   const head = e.target.closest('.dr-file-card-head');
@@ -742,6 +995,7 @@ function onDiffContentClick(e) {
   }
   const row = e.target.closest('.dr-row');
   if (!row || row.classList.contains('dr-row-empty')) return;
+  if (diffState.draftRange && (e.shiftKey || diffState.draftRange.selecting)) { extendDraftTo(row); return; }
   openCommentFromRow(row);
 }
 
@@ -753,50 +1007,160 @@ function openCommentFromRow(row) {
   const key = diffCommentKey(file, side, line);
   if (diffState.openDraftKey && diffState.openDraftKey !== key) return; // one draft open at a time
   if (row.nextElementSibling?.classList.contains('dr-comment-card')) row.nextElementSibling.remove();
-  openDiffCommentForm(row, key, file, side, line, row.querySelector('.dr-code')?.textContent ?? '');
+  const existing = diffState.comments.get(key);
+  openDiffCommentForm(row, {
+    file, side, start: existing?.startLine ?? line, end: line,
+    content: existing?.content ?? '', editingKey: existing ? key : null,
+  });
 }
 
-function openDiffCommentForm(row, key, file, side, line, lineText) {
+function openDiffCommentForm(row, { file, side, start, end, anchor = start, content = '', editingKey = null }) {
   if (row.nextElementSibling?.classList.contains('dr-comment-form')) return;
-  const existing = diffState.comments.get(key);
+  const key = diffCommentKey(file, side, end);
   const form = document.createElement('form');
   form.className = 'dr-comment-form';
+  const rangeLabel = document.createElement('div');
+  rangeLabel.className = 'dr-comment-range';
+  rangeLabel.textContent = `Lines ${start}–${end}`;
+  rangeLabel.hidden = start === end;
   const ta = document.createElement('textarea');
   ta.placeholder = 'Leave a comment…';
-  ta.value = existing?.content ?? '';
+  ta.value = content;
   const actions = document.createElement('div');
   actions.className = 'dr-comment-form-actions';
+  const rangeToggle = document.createElement('button');
+  rangeToggle.type = 'button'; rangeToggle.textContent = 'Select range';
+  rangeToggle.className = 'o-btn o-btn--ghost sm dr-comment-range-toggle';
+  rangeToggle.setAttribute('aria-pressed', 'false');
   const cancel = document.createElement('button');
-  cancel.type = 'button'; cancel.textContent = 'Cancel'; cancel.className = 'o-btn o-btn--ghost sm';
+  cancel.type = 'button'; cancel.textContent = 'Cancel'; cancel.className = 'o-btn o-btn--ghost sm dr-comment-cancel';
   const save = document.createElement('button');
   save.type = 'submit'; save.textContent = 'Save'; save.className = 'o-btn o-btn--default sm';
-  actions.append(cancel, save);
-  form.append(ta, actions);
+  actions.append(rangeToggle, cancel, save);
+  const hint = document.createElement('div');
+  hint.className = 'dr-comment-range-hint';
+  hint.setAttribute('aria-live', 'polite');
+  hint.hidden = true;
+  form.append(rangeLabel, ta, hint, actions);
   row.insertAdjacentElement('afterend', form);
   diffState.openDraftKey = key;
+  diffState.draftRange = { file, side, anchor, start, end, editingKey, selecting: false };
+  paintRange(rowBlock(row), file, side, start, end, 'dr-row--in-range');
+  const editing = editingKey && diffState.comments.get(editingKey);
+  if (editing?.startLine) {
+    for (const r of rangeRows(rowBlock(row), file, side, editing.startLine, editing.line)) r.classList.remove('dr-row--commented');
+  }
   ta.focus();
 
   ta.addEventListener('keydown', (ev) => {
     if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') { ev.preventDefault(); form.requestSubmit(); }
   });
+  rangeToggle.addEventListener('click', () => setRangeSelecting(form, !diffState.draftRange.selecting));
   cancel.addEventListener('click', () => {
-    form.remove();
-    diffState.openDraftKey = null;
-    if (existing) renderDiffCommentChip(row, key);
+    closeDraft(form);
+    const original = editingKey && findRowByKey(editingKey);
+    if (original) renderDiffCommentChip(original, editingKey);
+    repaintCommented(file);
   });
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
-    const content = ta.value.trim();
-    if (!content) return;
-    diffState.comments.set(key, { file, side, line, content, lineText });
-    form.remove();
-    diffState.openDraftKey = null;
+    const text = ta.value.trim();
+    if (!text) return;
+    const lineText = codeText(row);
+    const comment = start === end
+      ? { file, side, line: end, content: text, lineText }
+      : {
+        file, side, line: end, startLine: start, content: text, lineText,
+        quote: rangeRows(rowBlock(row), file, side, start, end)
+          .map((r) => ({ mark: r.querySelector('.dr-mark')?.textContent ?? '', text: codeText(r) })),
+      };
+    if (editingKey && editingKey !== key) diffState.comments.delete(editingKey);
+    diffState.comments.set(key, comment);
+    closeDraft(form);
     renderDiffCommentChip(row, key);
+    repaintCommented(file);
     updateDiffCommentBadges();
     renderHeaderStats();
     renderFooter();
     clearDiffSendWarning();
   });
+}
+
+function closeDraft(form) {
+  form.remove();
+  for (const r of getMount()?.querySelectorAll('.dr-row--in-range') ?? []) r.classList.remove('dr-row--in-range');
+  diffState.openDraftKey = null;
+  diffState.draftRange = null;
+}
+
+// Re-opens the draft on the range's new end row, keeping whatever was typed.
+function extendDraftTo(row) {
+  const d = diffState.draftRange;
+  const form = getMount()?.querySelector('.dr-comment-form');
+  if (!d || !form) return;
+  const anchorRow = findRowByKey(diffCommentKey(d.file, d.side, d.anchor));
+  if (row.dataset.file !== d.file || row.dataset.side !== d.side || !anchorRow || rowBlock(row) !== rowBlock(anchorRow)) {
+    showRangeHint(form, 'Ranges stay within one hunk, on one side.');
+    return;
+  }
+  const line = Number(row.dataset.line);
+  const start = Math.min(d.anchor, line);
+  const end = Math.max(d.anchor, line);
+  const key = diffCommentKey(d.file, d.side, end);
+  if (key !== d.editingKey && diffState.comments.has(key)) {
+    showRangeHint(form, 'A comment already ends on that line.');
+    return;
+  }
+  const content = form.querySelector('textarea').value;
+  const { file, side, anchor, editingKey } = d;
+  closeDraft(form);
+  openDiffCommentForm(findRowByKey(key), { file, side, start, end, anchor, content, editingKey });
+}
+
+function setRangeSelecting(form, on) {
+  diffState.draftRange.selecting = on;
+  form.querySelector('.dr-comment-range-toggle').setAttribute('aria-pressed', String(on));
+  const hint = form.querySelector('.dr-comment-range-hint');
+  if (on) showRangeHint(form, `${isDesktop() ? 'Click' : 'Tap'} the line the range should end on.`, false);
+  else hint.hidden = true;
+}
+
+function showRangeHint(form, text, refusal = true) {
+  const hint = form.querySelector('.dr-comment-range-hint');
+  hint.textContent = text;
+  hint.classList.toggle('is-refusal', refusal);
+  hint.hidden = false;
+}
+
+function findRowByKey(key) {
+  return getMount()?.querySelector(`.dr-row[data-key="${cssEscape(key)}"]`) ?? null;
+}
+
+function rowBlock(row) { return row.closest('.dr-hunk-split, .dr-hunk-unified'); }
+
+function codeText(row) { return row.querySelector('.dr-code')?.textContent ?? ''; }
+
+function rangeRows(block, file, side, start, end) {
+  return [...block.querySelectorAll(`.dr-row[data-side="${side}"]`)].filter((r) => {
+    const line = Number(r.dataset.line);
+    return r.dataset.file === file && line >= start && line <= end;
+  });
+}
+
+function paintRange(block, file, side, start, end, cls) {
+  if (start === end) return;
+  for (const r of rangeRows(block, file, side, start, end)) r.classList.add(cls);
+}
+
+function repaintCommented(file) {
+  const card = getMount()?.querySelector(`.dr-file-card[data-file="${cssEscape(file)}"]`);
+  if (!card) return;
+  for (const r of card.querySelectorAll('.dr-row--commented')) r.classList.remove('dr-row--commented');
+  for (const c of diffState.comments.values()) {
+    if (c.file !== file || !c.startLine) continue;
+    const endRow = findRowByKey(diffCommentKey(c.file, c.side, c.line));
+    if (endRow) paintRange(rowBlock(endRow), c.file, c.side, c.startLine, c.line, 'dr-row--commented');
+  }
 }
 
 function renderDiffCommentChip(row, key) {
@@ -816,19 +1180,34 @@ function renderDiffCommentChip(row, key) {
   const editBtn = document.createElement('button'); editBtn.type = 'button'; editBtn.textContent = 'Edit'; editBtn.className = 'dr-comment-link';
   const delBtn = document.createElement('button'); delBtn.type = 'button'; delBtn.textContent = 'Delete'; delBtn.className = 'dr-comment-link dr-comment-link--danger';
   actions.append(editBtn, delBtn);
+  if (c.startLine) {
+    const range = document.createElement('div');
+    range.className = 'dr-comment-range';
+    range.textContent = `Lines ${c.startLine}–${c.line}`;
+    chip.append(range);
+  }
   chip.append(body, actions);
   row.insertAdjacentElement('afterend', chip);
 
   delBtn.addEventListener('click', () => {
     diffState.comments.delete(key);
     chip.remove();
+    repaintCommented(c.file);
     updateDiffCommentBadges();
     renderHeaderStats();
     renderFooter();
   });
   editBtn.addEventListener('click', () => {
+    const openForm = getMount().querySelector('.dr-comment-form');
+    if (openForm) {
+      openForm.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      openForm.querySelector('textarea')?.focus({ preventScroll: true });
+      return;
+    }
     chip.remove();
-    openDiffCommentForm(row, key, c.file, c.side, c.line, c.lineText);
+    openDiffCommentForm(row, {
+      file: c.file, side: c.side, start: c.startLine ?? c.line, end: c.line, content: c.content, editingKey: key,
+    });
   });
 }
 
@@ -836,15 +1215,27 @@ function updateDiffCommentBadges() {
   const counts = new Map();
   for (const c of diffState.comments.values()) counts.set(c.file, (counts.get(c.file) ?? 0) + 1);
   for (const badge of getMount()?.querySelectorAll('[data-file-badge]') ?? []) {
-    const file = badge.getAttribute('data-file-badge');
-    const n = counts.get(file) ?? 0;
-    badge.textContent = String(n);
-    badge.hidden = n === 0;
+    setBadge(badge, counts.get(badge.getAttribute('data-file-badge')) ?? 0);
+  }
+  // An open directory's files show their own badges, so only a collapsed one stands in for them.
+  for (const badge of getMount()?.querySelectorAll('[data-dir-badge]') ?? []) {
+    const prefix = `${badge.getAttribute('data-dir-badge')}/`;
+    let n = 0;
+    if (badge.closest('.dr-dir-row')?.getAttribute('aria-expanded') === 'false') {
+      for (const [file, c] of counts) if (file.startsWith(prefix)) n += c;
+    }
+    setBadge(badge, n);
   }
 }
 
+function setBadge(badge, n) {
+  badge.textContent = String(n);
+  badge.hidden = n === 0;
+}
+
 function formatDiffReviewMessage() {
-  const sorted = [...diffState.comments.values()].sort((a, b) => (a.file !== b.file ? (a.file < b.file ? -1 : 1) : a.line - b.line));
+  const sorted = [...diffState.comments.values()]
+    .sort((a, b) => (a.file !== b.file ? (a.file < b.file ? -1 : 1) : (a.startLine ?? a.line) - (b.startLine ?? b.line)));
   return formatDiffReviewMessageShared(sorted);
 }
 
@@ -1041,12 +1432,13 @@ function computePrimaryLabel({ ignoreReview = false } = {}) {
     const bits = [];
     bits.push(willCommit ? 'Commit' : null);
     bits.push(commit.push ? 'push' : null);
-    bits.push(commit.openPr && !s.prUrl && !onDefault ? 'open PR' : null);
+    bits.push(commit.openPr && !s.prUrl && !onDefault ? (commit.draftPr ? 'open draft PR' : 'open PR') : null);
     const parts = bits.filter(Boolean);
     return parts.length ? parts[0] + (parts.length > 1 ? ` & ${parts.slice(1).join(' & ')}` : '') : 'Push';
   }
   if (commit.mergeMode === 'merge-to-base') return 'Squash & merge';
-  return commit.openPr && !s.prUrl ? 'Squash, push & open PR' : 'Commit & push';
+  if (!commit.openPr || s.prUrl) return 'Commit & push';
+  return commit.draftPr ? 'Squash, push & open draft PR' : 'Squash, push & open PR';
 }
 
 // The commit dialog markup (message + merge mode + branch target + push/PR
@@ -1087,7 +1479,8 @@ function buildCommitDialogHtml() {
     && !(!isWorktree && onDefaultBranch)
     ? (s?.prUrl
       ? `<a class="dr-pr-open o-pill code" href="${escapeHtml(s.prUrl)}" target="_blank" rel="noopener">PR already open ↗</a>`
-      : `<label class="dr-checkbox"><input type="checkbox" id="dr-openpr" ${commit.openPr ? 'checked' : ''}>Open PR to main</label>`)
+      : `<label class="dr-checkbox"><input type="checkbox" id="dr-openpr" ${commit.openPr ? 'checked' : ''}>Open PR to main</label>`
+        + (commit.openPr ? `<label class="dr-checkbox" title="Let CI run before requesting reviewers"><input type="checkbox" id="dr-draftpr" ${commit.draftPr ? 'checked' : ''}>As draft</label>` : ''))
     : '';
   const prDraft = needsPrDraft();
   const prBlock = prDraft ? `
@@ -1133,6 +1526,7 @@ function wireCommitDialogEvents(root, { onCommit }) {
   });
   root.querySelector('#dr-push')?.addEventListener('change', (e) => { diffState.commit.push = e.target.checked; onCommit.rerender(); });
   root.querySelector('#dr-openpr')?.addEventListener('change', (e) => { diffState.commit.openPr = e.target.checked; onCommit.rerender(); });
+  root.querySelector('#dr-draftpr')?.addEventListener('change', (e) => { diffState.commit.draftPr = e.target.checked; onCommit.rerender(); });
   root.querySelector('#dr-new-branch')?.addEventListener('input', (e) => { diffState.commit.newBranch = e.target.value; });
   root.querySelector('#dr-pr-title')?.addEventListener('input', (e) => { diffState.commit.prTitle = e.target.value; });
   root.querySelector('#dr-pr-body')?.addEventListener('input', (e) => { diffState.commit.prBody = e.target.value; });
@@ -1413,8 +1807,8 @@ function doPush(sessionId) {
   return runSourceAction('push', 'git/push', {}, { success: 'Push complete.', failure: 'Push failed.' });
 }
 
-function doOpenPr(sessionId) {
-  return runSourceAction('open-pr', 'git/open-pr', { body: JSON.stringify({}) }, { success: 'Pull request opened.', failure: 'Open PR failed.' });
+function doOpenPr(sessionId, draft) {
+  return runSourceAction('open-pr', 'git/open-pr', { body: JSON.stringify({ draft }) }, { success: draft ? 'Draft pull request opened.' : 'Pull request opened.', failure: 'Open PR failed.' });
 }
 
 function doCreateBranch(sessionId, newBranch) {
@@ -1527,7 +1921,7 @@ async function runCommitAction() {
     if (commit.push && !(await doPush(sessionId))) return;
     const live = sourceCtl.status ?? s;
     const onDefault = Boolean(live.branch && live.defaultBranch && live.branch === live.defaultBranch);
-    if (commit.openPr && !live.prUrl && !onDefault) await doOpenPr(sessionId);
+    if (commit.openPr && !live.prUrl && !onDefault) await doOpenPr(sessionId, commit.draftPr);
     return;
   }
 
@@ -1547,7 +1941,7 @@ async function runCommitAction() {
   if (commit.openPr && !s.prUrl) {
     const newBranch = commit.newBranch.trim();
     if (!newBranch) { setSourceFeedback('err', 'Branch name required.'); return; }
-    await doFinalize(sessionId, { kind: 'squash-to-branch', message, newBranch, ...(pr ?? {}) });
+    await doFinalize(sessionId, { kind: 'squash-to-branch', message, newBranch, draft: commit.draftPr, ...(pr ?? {}) });
     return;
   }
   // "Open PR" unchecked on squash-to-branch: finalize's squash-to-branch endpoint

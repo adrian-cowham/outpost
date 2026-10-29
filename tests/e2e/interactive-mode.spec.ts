@@ -82,7 +82,7 @@ seededTest('take the wheel on a live step, converse, and hand it back', async ({
   const step = outpostPage.locator(`.tl-step[data-step-id="${STEP_ID}"]`);
 
   // Autopilot: the compact tail, no composer.
-  await expect(step.locator('.step-wheel')).toHaveText(/Take the wheel/);
+  await expect(step.locator('.step-wheel')).toHaveText(/Drive/);
   await expect(step.locator('.sv-composer')).toHaveCount(0);
 
   await step.locator('.step-wheel').click();
@@ -113,6 +113,6 @@ seededTest('take the wheel on a live step, converse, and hand it back', async ({
 
   // Hand back: composer gone, compact tail returns.
   await step.locator('.step-wheel').click();
-  await expect(step.locator('.step-wheel')).toHaveText(/Take the wheel/);
+  await expect(step.locator('.step-wheel')).toHaveText(/Drive/);
   await expect(step.locator('.sv-composer')).toHaveCount(0);
 });

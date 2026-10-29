@@ -32,6 +32,7 @@ import { settings } from '../state/settings.js';
 import { EDIT_TOOLS, TASK_TOOL_NAMES, isHighDetailTool } from '../components/tool-use-tile.js';
 import { TOOL_VERBS } from '../components/session-view/regions.js';
 import { sendApprovalModeSet, forceCloseSessionWs } from '../components/session-view/session-ws.js';
+import { restoreRefused } from '../components/session-view/attachments.js';
 import { openSession } from '../app-bridge.js';
 
 let deps = /** @type {any} */ (null);
@@ -169,6 +170,7 @@ const sessionHandlers = {
   },
 
   stream_event(msg, sid, isCurrent) {
+    sessions.for(sid).setMcpPending(false);
     // message_stop fires at the end of EVERY assistant turn; message_delta is canonical
     const ev = msg.event ?? msg;
     const deltaReason = ev?.delta?.stop_reason;
@@ -211,8 +213,14 @@ const sessionHandlers = {
     }
   },
 
-  system(msg, _sid, isCurrent) {
+  system(msg, sid, isCurrent) {
     if (msg.subtype === 'task_notification' && applyTaskNotification(msg) && isCurrent) deps.renderSession();
+    // claude -p holds the turn's first API request until every pending server connects; init is the only frame that says so
+    if (msg.subtype === 'init' && msg.mcp_servers?.some((s) => s.status === 'pending')) {
+      sessions.for(sid).setMcpPending(true);
+      if (!sessions.getSlice(sid)?.thinking) deps.startThinking(sid);
+      if (isCurrent) deps.renderSession();
+    }
   },
 
   // The only place --print mode states a model's context window — statusLine never fires there
@@ -319,6 +327,16 @@ const sessionHandlers = {
       deps.state.pendingNewSession = null;
       if (isCurrent) deps.leaveSession();
       deps.openCwdPickerSheet({ message: msg.message, failedCwd });
+      return;
+    }
+    // A refused message never reached claude: it leaves the transcript and goes back in the
+    // composer, and the turn it was queued into is still running
+    if (msg.clientId) {
+      const S = sessions.for(sid);
+      S.setTranscript((sessions.getSlice(sid)?.transcript ?? []).filter((m) => m.clientId !== msg.clientId));
+      restoreRefused(sid, msg.clientId);
+      S.appendTranscript({ role: 'error', text: msg.message });
+      if (isCurrent) deps.renderSession();
       return;
     }
     sessions.for(sid).appendTranscript({ role: 'error', text: msg.message });

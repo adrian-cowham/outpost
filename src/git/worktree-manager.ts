@@ -675,16 +675,27 @@ export function baseLabelFor(rec: Pick<WorktreeRecord, 'baseRef' | 'baseBranch' 
   return rec.baseSha && rec.baseSha.length > 0 ? rec.baseSha : 'main';
 }
 
+export interface DiffOpts {
+  context?: number;
+  paths?: string[];
+}
+
+// --literal-pathspecs so a caller-supplied path like `:(top)x` is a filename, not pathspec magic.
+function diffArgs(cwd: string, range: string, opts: DiffOpts): string[] {
+  return ['-C', cwd, '--literal-pathspecs', 'diff', '--no-color', '--find-renames',
+    `-U${opts.context ?? 3}`, range, '--', ...(opts.paths ?? [])];
+}
+
 // Argv-only, no shell — branch regex + trailing `--` block argv-flag smuggling on refs/paths.
-export function runGitDiff(rec: WorktreeRecord, mode: DiffMode): string {
+export function runGitDiff(rec: WorktreeRecord, mode: DiffMode, opts: DiffOpts = {}): string {
   if (!rec.worktreePath) throw new Error('cannot diff a tombstoned worktree record');
   const baseBranch = diffBaseFor(rec);
   if (!BRANCH_NAME_RE.test(baseBranch)) throw new Error(`invalid baseBranch: ${JSON.stringify(baseBranch)}`);
   if (!BRANCH_NAME_RE.test(rec.branch)) throw new Error(`invalid branch: ${JSON.stringify(rec.branch)}`);
 
   const args = mode === 'branch'
-    ? ['-C', rec.projectCwd, 'diff', '--no-color', '--find-renames', '-U3', `${baseBranch}...${rec.branch}`, '--']
-    : ['-C', rec.worktreePath, 'diff', '--no-color', '--find-renames', '-U3', 'HEAD', '--'];
+    ? diffArgs(rec.projectCwd, `${baseBranch}...${rec.branch}`, opts)
+    : diffArgs(rec.worktreePath, 'HEAD', opts);
 
   const buf = execFileSync('git', args, { stdio: 'pipe', maxBuffer: 32 * 1024 * 1024 });
   return buf.toString('utf8');
@@ -699,17 +710,13 @@ export interface CwdDiffResult {
 }
 
 // Diff for sessions launched directly in the user's repo (no outpost worktree record); resolves branch + base at call time.
-export function runGitDiffInCwd(cwd: string, mode: DiffMode): CwdDiffResult {
+export function runGitDiffInCwd(cwd: string, mode: DiffMode, opts: DiffOpts = {}): CwdDiffResult {
   const currentBranch = readCurrentBranch(cwd);
   const baseBranch = resolveBaseBranch(cwd);
   const onBaseBranch = !!currentBranch && currentBranch === baseBranch;
 
   if (mode === 'worktree') {
-    const buf = execFileSync(
-      'git',
-      ['-C', cwd, 'diff', '--no-color', '--find-renames', '-U3', 'HEAD', '--'],
-      { stdio: 'pipe', maxBuffer: 32 * 1024 * 1024 },
-    );
+    const buf = execFileSync('git', diffArgs(cwd, 'HEAD', opts), { stdio: 'pipe', maxBuffer: 32 * 1024 * 1024 });
     return { text: buf.toString('utf8'), baseRef: 'HEAD', headRef: 'WORKTREE', onBaseBranch };
   }
 
@@ -720,7 +727,7 @@ export function runGitDiffInCwd(cwd: string, mode: DiffMode): CwdDiffResult {
   if (!BRANCH_NAME_RE.test(baseBranch)) throw new Error(`invalid baseBranch: ${JSON.stringify(baseBranch)}`);
   const buf = execFileSync(
     'git',
-    ['-C', cwd, 'diff', '--no-color', '--find-renames', '-U3', `${baseBranch}...${currentBranch}`, '--'],
+    diffArgs(cwd, `${baseBranch}...${currentBranch}`, opts),
     { stdio: 'pipe', maxBuffer: 32 * 1024 * 1024 },
   );
   return { text: buf.toString('utf8'), baseRef: baseBranch, headRef: currentBranch, onBaseBranch: false };

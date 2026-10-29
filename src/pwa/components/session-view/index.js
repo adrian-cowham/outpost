@@ -46,6 +46,8 @@ import { agentsStripHtml, refreshAgentsSheet } from '../agents-sheet/index.js';
 import { refreshTodosSheet } from '../todos-sheet.js';
 import { deriveSkillLabel } from '../../vm/sessions.js';
 import { engagement } from '../../state/engagement.js';
+import { hasReadyAttachments, rememberSent, wireAttachments } from './attachments.js';
+import { wireAttachment } from '../../utils/attachments.js';
 
 const APPROVAL_MODES = ['ask', 'plan', 'accept-edits', 'bypass'];
 const APPROVAL_MODE_LABEL = { 'ask': 'Ask', 'plan': 'Plan', 'accept-edits': 'Accept edits', 'bypass': 'Bypass' };
@@ -94,7 +96,12 @@ function buildSkeleton(mount) {
     <div class="sv-composer-wrap">
       <div class="sv-meter-region"></div>
       <div class="sv-slash-palette" hidden></div>
+      <div class="sv-attachments" hidden></div>
       <div class="sv-composer-row">
+        <button class="sv-attach" type="button" aria-label="Attach photos or files">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.1l-8.5 8.5a5.5 5.5 0 0 1-7.8-7.8l8.5-8.5a3.7 3.7 0 0 1 5.2 5.2l-8.5 8.5a1.8 1.8 0 0 1-2.6-2.6l7.8-7.8"/></svg>
+        </button>
+        <input class="sv-attach-input" type="file" multiple hidden>
         <div class="sv-composer" contenteditable="true" role="textbox" aria-multiline="true"
              aria-label="Message" autocapitalize="sentences" data-placeholder="Type a message…"></div>
         <span class="sv-model-chip" hidden></span>
@@ -117,6 +124,9 @@ function buildSkeleton(mount) {
     composer:  mount.querySelector('.sv-composer'),
     send:      mount.querySelector('.sv-send'),
     stop:      mount.querySelector('.sv-stop'),
+    attach:    mount.querySelector('.sv-attach'),
+    attachInput: mount.querySelector('.sv-attach-input'),
+    attachments: mount.querySelector('.sv-attachments'),
     modelChip: mount.querySelector('.sv-model-chip'),
     modeChip:  mount.querySelector('.sv-mode-chip'),
     modeSelect:mount.querySelector('.sv-mode-select'),
@@ -529,11 +539,11 @@ function bindTranscriptHandlers(dom, sessionId) {
 }
 
 // Send stays live mid-turn: claude folds a queued message into the running turn, it doesn't interrupt
-function paintComposerButtons(dom, thinking) {
+function paintComposerButtons(dom, sessionId, thinking) {
   // textContent, not innerText: this runs per streamed token, and innerText forces a layout
-  const hasText = dom.composer.textContent.trim().length > 0;
-  dom.send.classList.toggle('armed', hasText);
-  dom.send.hidden = thinking && !hasText;
+  const hasContent = dom.composer.textContent.trim().length > 0 || hasReadyAttachments(sessionId);
+  dom.send.classList.toggle('armed', hasContent);
+  dom.send.hidden = thinking && !hasContent;
   dom.stop.hidden = !thinking;
 }
 
@@ -544,7 +554,15 @@ function paintComposerButtons(dom, thinking) {
 function wireComposer(dom, sessionId, paletteState) {
   const saved = composerDraft.get(sessionId);
   if (saved) dom.composer.textContent = saved;
-  const armed = () => paintComposerButtons(dom, !!sessions.getSlice(sessionId)?.thinking);
+  const armed = () => paintComposerButtons(dom, sessionId, !!sessions.getSlice(sessionId)?.thinking);
+  // A refused message's text, back in the composer unless the user has started another
+  const restoreText = (text) => {
+    if (!text || dom.composer.textContent.trim()) return;
+    dom.composer.innerText = text;
+    composerDraft.set(sessionId, text);
+    placeCursorAtEnd(dom.composer);
+  };
+  const attachments = wireAttachments(dom, sessionId, armed, restoreText);
   const repaintPalette = () => renderSlashPalette(dom, paletteState, insertSlashCommand);
   const insertSlashCommand = (cmd) => {
     dom.composer.textContent = `${cmd} `;
@@ -586,17 +604,23 @@ function wireComposer(dom, sessionId, paletteState) {
   const send = () => {
     // innerText, not textContent: a typed newline is a <div>/<br>, which textContent drops
     const text = dom.composer.innerText.trim();
-    if (!text) return;
+    // A photo still being downscaled would be dropped; Send isn't armed for it yet anyway.
+    if (attachments.busy()) return;
+    if (!text && !hasReadyAttachments(sessionId)) return;
     // Only special while the preference is on — otherwise a message that happens to open
     // with "!" is a message, not a swallowed command. The daemon refuses either way.
     if (text.startsWith('!') && settings.get().shellCommands) { runShell(text.slice(1).trim()); return; }
+    const attached = attachments.take();
+    const wire = attached.map(wireAttachment);
+    const clientId = crypto.randomUUID();
+    rememberSent(sessionId, clientId, text, attached);
     // Happy path: the socket is open, send immediately. If it isn't, the session
     // was interrupted or its subprocess exited — typing a message is an explicit
     // intent to resume, so reconnect (which respawns the subprocess daemon-side)
     // and queue the message to flush on open, rather than leaving the composer
     // wedged behind a dead socket until the user reloads the session.
-    if (!sendUserMessage(sessionId, text)) {
-      reconnectAndSend(sessionId, text);
+    if (!sendUserMessage(sessionId, text, wire, clientId)) {
+      reconnectAndSend(sessionId, text, wire, clientId);
       // runState went 'inactive' on the interrupt/exit; the view is still
       // mounted, so restore it now that we're bringing the session back — this
       // clears the 'idle' conn state so the banner/button reflect reconnecting.
@@ -608,7 +632,14 @@ function wireComposer(dom, sessionId, paletteState) {
     // Marked __pending so future stages can render it dimmed until
     // server-echoed.
     engagement.markSession(sessionId);
-    sessions.for(sessionId).appendTranscript({ role: 'user', text, __pending: true });
+    sessions.for(sessionId).appendTranscript({
+      role: 'user',
+      text,
+      // Thumbnails and names only — the full bytes have no business living in the store.
+      ...(attached.length ? { attachments: attached.map(({ kind, name, preview }) => ({ kind, name, preview })) } : {}),
+      clientId,
+      __pending: true,
+    });
     clearComposer();
   };
   dom.send.addEventListener('click', send);
@@ -832,7 +863,7 @@ export function mountSessionView(mount, sessionId, meta = {}) {
     } else if (!running && headerTicker) {
       stopHeaderTicker();
     }
-    paintComposerButtons(dom, !!slice?.thinking);
+    paintComposerButtons(dom, sessionId, !!slice?.thinking);
     // The strip's elapsed-time meta needs to tick between slice updates. Run a
     // 200ms interval only while this session is thinking; it repaints just the
     // strip so surrounding DOM (transcript, composer selection) isn't touched.

@@ -63,7 +63,7 @@ registerSurface({
 
 registerSurface({
   key: 'cockpit',
-  title: 'Cockpit (WIP)',
+  title: 'Cockpit',
   layout: 'main-only',
   renderDetail: renderCockpitDetail,
 });

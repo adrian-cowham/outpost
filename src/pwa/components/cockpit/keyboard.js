@@ -9,8 +9,8 @@ function isTyping(target) {
 
 // Board keys answer only from the page itself or a row header — a focused control keeps its own
 // Enter/Space, and anything outside the board (an overlay, a dialog) isn't ours.
-function boardOwns(root, target) {
-  if (document.querySelector('[aria-modal="true"]')) return false;
+function boardOwns(root, target, board) {
+  if (board.isDragging?.() || document.querySelector('[aria-modal="true"]')) return false;
   if (!(target instanceof Element) || target === document.body) return true;
   if (!root.contains(target)) return false;
   return !target.closest('.ckb-body, a, summary, button:not(.ckb-caret), [role="button"]');
@@ -50,7 +50,7 @@ export function installBoardKeys(root, board) {
       }
       return;
     }
-    if (!boardOwns(root, e.target)) return;
+    if (!boardOwns(root, e.target, board)) return;
     const key = board.selected();
     const handled = (id, fn) => {
       if (!keymap.matches(e, id)) return false;
@@ -67,6 +67,7 @@ export function installBoardKeys(root, board) {
     if (handled('cockpit.archive', () => board.archive(key))) return;
     if (handled('cockpit.open', () => board.openFull(key))) return;
     if (handled('cockpit.collapse', () => board.collapse(key))) return;
+    if (handled('cockpit.pin', () => board.pin(key))) return;
     handled('cockpit.reply', () => reply(key));
   };
 

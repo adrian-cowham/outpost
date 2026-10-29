@@ -62,6 +62,7 @@ function emptySlice(id, meta = {}) {
     lastSeenSeq:        0,
     sessionWsHasConnected: false,
     lingeringVerb:      null,
+    mcpPending:         false,
     expectedInterrupt:  false,
     expectedArchive:    false,
     replayGapCount:     0,
@@ -81,6 +82,7 @@ const EMPTY_SLICE = Object.freeze(emptySlice(null));
 const initial = {
   view: 'list',
   projects: [],
+  projectsLoaded: false,
   currentSessionId: null,       // mobile-only UI pointer; desktop uses per-tab
   currentSessionCwd: null,
   currentSessionSpawnCwd: null,
@@ -266,7 +268,7 @@ export const sessions = {
   // ────────────────────────────────────────────────────────────────────
 
   setProjects(projects) {
-    store.set((s) => ({ ...s, projects }));
+    store.set((s) => ({ ...s, projects, projectsLoaded: true }));
   },
 
   // Mobile / mobile-shell UI pointer. Called when a session enters the visible
@@ -458,6 +460,11 @@ function makeSliceApi(id) {
     setLingeringVerb(verb) {
       store.set((s) => withSlice(s, id, (sl) => ({ ...sl, lingeringVerb: verb })));
     },
+    setMcpPending(v) {
+      const next = !!v;
+      store.set((s) =>
+        withSlice(s, id, (sl) => (sl.mcpPending === next ? sl : { ...sl, mcpPending: next })));
+    },
     expectInterrupt() {
       store.set((s) => withSlice(s, id, (sl) => ({ ...sl, expectedInterrupt: true })));
     },
@@ -506,6 +513,7 @@ function makeSliceApi(id) {
         thinking: false,
         activeTools: [],
         lingeringVerb: null,
+        mcpPending: false,
       })));
     },
     updateThinking({ tokens, chars }) {

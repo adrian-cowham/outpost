@@ -140,7 +140,15 @@ export function focusAction(job) {
         cta: { label: 'Review', action: 'review-gate', stepId: step.id },
       };
     }
-    // The only other thing stepNeedsYou flags is an indefinite meta.wait hold.
+    // The only other thing stepNeedsYou flags is an indefinite hold: a meta.wait, or a
+    // meta.session the user is working in.
+    if (step.action === 'meta.session') {
+      return {
+        title: 'Your session',
+        description: step.inputs?.reason ? String(step.inputs.reason) : `${step.title} — mark it done when you're finished.`,
+        cta: { label: 'Done', action: 'resume-wait', stepId: step.id },
+      };
+    }
     return {
       title: 'On hold',
       description: step.inputs?.reason ? String(step.inputs.reason) : `${step.title} is holding until you resume.`,
@@ -331,6 +339,8 @@ function statusOf(s) {
   }
   const reason = s.waitingOn?.reason;
   if (s.state === 'waiting') {
+    // Outranks the PR's own state: "Ready to merge" over unpushed review fixes is the controller waiting on you
+    if (s.pr?.hasUnpushedWork && !s.waitingOn?.untilAllDispatchesDone) return parked('↑', null, 'Waiting for push', reason);
     const pr = prStatusOf(s);
     if (pr) return { ...pr, kind: 'parked', detail: reason ?? null };
     // Row 8: implemented, no PR, parked until the branch lands on origin.

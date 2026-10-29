@@ -24,7 +24,7 @@ function widgetKind(v) {
 }
 
 // The id is load-bearing, not decorative: it's the accessible-name target for `<label
-// for>`, AND (per detail.js's snapshotUi/restoreUi) the key an edited-but-unsubmitted value
+// for>`, AND (per repaint-ui.js's snapshotUi/restoreUi) the key an edited-but-unsubmitted value
 // survives a store-driven repaint under. Keep it stable across renders of the same draft.
 function fieldHtml(draftId, callIdx, key, value) {
   const kind = widgetKind(value);
@@ -72,7 +72,7 @@ function fieldHtml(draftId, callIdx, key, value) {
 // One `files` entry (path -> content), rendered as its own editable textarea — a drafted
 // body wants the multiline treatment (it's markdown or JSON), not the one-line `fieldHtml`
 // text input. `data-arg-key="${path}"` (not a `data-file-path`-only attribute) is deliberate:
-// detail.js's snapshotUi/restoreUi already keys every `.wd-card [id^="wd-f-"]` element on
+// repaint-ui.js's snapshotUi/restoreUi already keys every `.wd-card [id^="wd-f-"]` element on
 // `data-call-idx` + `data-arg-key` (falling back to a `' bash'` sentinel only when neither is
 // present) — reusing that exact attribute, with the path as its value, gives this field the
 // same repaint-survival guarantee `fieldHtml`'s tool-arg fields get, in its own namespace
@@ -383,7 +383,7 @@ export function wireWriteDraft(root, { jobId, stepId, draft }) {
   const displayMessage = (msg) => msg.replace(/^work api \d+:\s*/, '');
 
   // A taken decision has to be visible on the card that carried it, immediately — the repaint
-  // that removes it is a store round-trip away, and detail.js's restoreUi would otherwise put a
+  // that removes it is a store round-trip away, and repaint-ui.js's restoreUi would otherwise put a
   // still-open revise composer straight back, text and all, on the way through. So settle the
   // card here: freeze the payload, close the composers (empty, so there's nothing left to
   // restore), and say what was just done where the buttons were.

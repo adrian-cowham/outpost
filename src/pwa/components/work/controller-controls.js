@@ -61,7 +61,7 @@ export function controllerComposerHtml(s) {
     <div class="thread-composer orc-msg" data-composer="orc-message">
       <textarea class="thread-compose-input" rows="1" data-autogrow placeholder="Message the controller…"></textarea>
       <div class="thread-composer-row">
-        <button class="o-btn o-btn--default" data-orc-action="send-message">Send</button>
+        <button class="o-btn o-btn--default sm" data-orc-action="send-message">Send</button>
       </div>
     </div>`;
 }

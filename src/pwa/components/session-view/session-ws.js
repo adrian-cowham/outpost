@@ -236,11 +236,21 @@ export function forceCloseSessionWs(id) {
 // false if the socket isn't open (caller can toast + keep composer text so the
 // user can retry). Does NOT append to the transcript — that's the caller's job
 // (session-view appends first for immediate feedback, then sends).
-export function sendUserMessage(id, text) {
+// `clientId` comes back on a daemon_error if the daemon refuses the message (restoreRefused).
+export function sendUserMessage(id, text, attachments = [], clientId) {
   const info = conns.get(id);
   if (!info?.ws || info.ws.readyState !== WebSocket.OPEN) return false;
-  info.ws.send(JSON.stringify({ type: 'user_message', content: text }));
+  info.ws.send(JSON.stringify(userMessageFrame(text, attachments, clientId)));
   return true;
+}
+
+function userMessageFrame(text, attachments, clientId) {
+  return {
+    type: 'user_message',
+    content: text,
+    ...(attachments.length ? { attachments } : {}),
+    ...(clientId ? { clientId } : {}),
+  };
 }
 
 // Run a `!` command server-side in the session's cwd. The daemon answers with a
@@ -286,8 +296,8 @@ function reconnectAndQueue(id, frame) {
   return false;
 }
 
-export function reconnectAndSend(id, text) {
-  return reconnectAndQueue(id, { type: 'user_message', content: text });
+export function reconnectAndSend(id, text, attachments = [], clientId) {
+  return reconnectAndQueue(id, userMessageFrame(text, attachments, clientId));
 }
 
 export function reconnectAndRunShell(id, execId, command) {

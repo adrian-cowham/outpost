@@ -3,19 +3,28 @@ import { relPast } from '../../utils/formatting.js';
 import { OPENABLE } from '../../vm/cockpit-board.js';
 import { syncFeeds, teardownFeeds } from './feeds.js';
 
-const GLYPH = { live: '◉', you: '●', parked: '○', failed: '✕', idle: '·' };
-const ICON_CLASS = { live: 'busy', you: 'warn', parked: 'idle', failed: 'hot', idle: 'idle' };
-const AGED = new Set(['you', 'parked', 'idle', 'failed']);
+const GLYPH = { live: '◉', you: '●', parked: '○', failed: '✕', done: '●', idle: '·' };
+const ICON_CLASS = { live: 'busy', you: 'warn', parked: 'idle', failed: 'hot', done: 'ok', idle: 'idle' };
+const AGED = new Set(['you', 'parked', 'idle', 'failed', 'done']);
+const CHEVRON = '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
-function refHtml(m) {
-  const kind = m.kindLabel ? `<span class="ckb-kind">${escapeHtml(m.kindLabel)}</span>` : '';
-  if (!m.ref) return kind;
-  return kind + (m.refMono ? `<span class="o-ref">${escapeHtml(m.ref)}</span>` : `<span>${escapeHtml(m.ref)}</span>`);
+// Short identifiers only, so titles line up down a group; a session's repo trails its title instead.
+function slotHtml(m) {
+  if (m.kindLabel) return escapeHtml(m.kindLabel);
+  if (m.kind !== 'job' || !m.ref) return '';
+  return m.refMono ? `<span class="o-ref">${escapeHtml(m.ref)}</span>` : escapeHtml(m.ref);
 }
 
-function statusText(m, now) {
-  const age = AGED.has(m.tone) && m.time ? relPast(m.time, now) : '';
-  return age ? `${m.status.text} · ${age}` : m.status.text;
+function metaText(m) {
+  return m.kind === 'job' ? '' : (m.ref ?? '');
+}
+
+function ageText(m, now) {
+  return AGED.has(m.tone) && m.time ? (relPast(m.time, now) ?? '') : '';
+}
+
+function idleArchiveLabel(m) {
+  return m.kind === 'job' ? 'Dismiss' : 'Archive';
 }
 
 export function hasOpenableAction(model) {
@@ -28,18 +37,20 @@ export function createRow(model, ctx) {
   el.innerHTML = `
     <div class="ckb-line">
       <span class="o-row-icon ckb-glyph" aria-hidden="true"></span>
-      <span class="ckb-ref"></span>
-      <span class="o-row-title ckb-title"></span>
+      <span class="ckb-lead"><span class="ckb-ref"></span><span class="o-row-title ckb-title"></span><span class="ckb-meta"></span></span>
       <span class="ckb-status"></span>
-      <span class="ckb-act"></span>
-      <button type="button" class="o-btn o-btn--ghost sm ckb-archive" hidden>Archive</button>
-      <button type="button" class="ckb-caret" aria-expanded="false" aria-label="Expand">▸</button>
+      <span class="ckb-age"></span>
+      <span class="ckb-acts">
+        <button type="button" class="o-btn o-btn--ghost sm ckb-archive" hidden>Archive</button>
+        <span class="ckb-act"></span>
+      </span>
+      <button type="button" class="ckb-caret" aria-expanded="false" aria-label="Expand">${CHEVRON}</button>
     </div>
     <div class="ckb-feeds"></div>
     <div class="ckb-body" hidden></div>`;
   const dom = {
     glyph: el.querySelector('.ckb-glyph'), ref: el.querySelector('.ckb-ref'), title: el.querySelector('.ckb-title'),
-    status: el.querySelector('.ckb-status'), act: el.querySelector('.ckb-act'), archive: el.querySelector('.ckb-archive'),
+    meta: el.querySelector('.ckb-meta'), status: el.querySelector('.ckb-status'), age: el.querySelector('.ckb-age'), act: el.querySelector('.ckb-act'), archive: el.querySelector('.ckb-archive'),
     caret: el.querySelector('.ckb-caret'), feeds: el.querySelector('.ckb-feeds'), body: el.querySelector('.ckb-body'),
   };
   let current = model;
@@ -66,26 +77,32 @@ export function createRow(model, ctx) {
     el.dataset.rowKey = m.key;
     el.dataset.tone = m.tone;
     el.classList.toggle('is-selected', view.selected);
-    const nextSig = [m.tone, m.ref, m.kindLabel, m.title, statusText(m, view.now), m.status.tone, m.actionLabel].join('|');
+    const age = archiveError ? '' : ageText(m, view.now);
+    const nextSig = [m.tone, m.ref, m.kindLabel, m.title, m.status.text, age, m.status.tone, m.actionLabel].join('|');
     if (nextSig !== sig) {
       sig = nextSig;
+      const text = archiveError || m.status.text;
       dom.glyph.textContent = GLYPH[m.tone];
       dom.glyph.className = `o-row-icon ckb-glyph ${ICON_CLASS[m.tone]}`;
-      dom.ref.innerHTML = refHtml(m);
+      dom.ref.innerHTML = slotHtml(m);
       dom.title.textContent = m.title;
-      dom.status.textContent = archiveError || statusText(m, view.now);
+      dom.title.title = m.title;
+      dom.meta.textContent = metaText(m);
+      dom.status.textContent = text;
+      dom.status.title = text;
+      dom.age.textContent = age;
       dom.status.dataset.tone = archiveError ? 'failed' : m.status.tone;
       dom.act.innerHTML = m.actionLabel
         ? `<button type="button" class="o-btn o-btn--default sm">${escapeHtml(m.actionLabel)}</button>`
         : '';
     }
-    dom.archive.hidden = m.kind !== 'session';
+    dom.archive.hidden = m.kind !== 'session' && !m.dismissable;
+    if (!dom.archive.disabled) dom.archive.textContent = idleArchiveLabel(m);
     dom.caret.hidden = m.kind === 'other';
     dom.caret.setAttribute('aria-expanded', String(!!view.mode));
-    dom.caret.textContent = view.mode ? '▾' : '▸';
 
     const hide = new Set(view.hideFeeds);
-    syncFeeds(dom.feeds, m.feeds.filter((f) => !hide.has(f.sessionId)), { jobId: m.kind === 'job' ? m.id : null });
+    syncFeeds(dom.feeds, m.feeds.filter((f) => !hide.has(f.sessionId)));
 
     if (view.mode !== bodyMode) {
       body?.unmount();
@@ -105,7 +122,7 @@ export function createRow(model, ctx) {
     get model() { return current; },
     setArchiving(on, error = '') {
       dom.archive.disabled = on;
-      dom.archive.textContent = on ? 'Archiving…' : 'Archive';
+      dom.archive.textContent = on ? (current.kind === 'job' ? 'Dismissing…' : 'Archiving…') : idleArchiveLabel(current);
       archiveError = on ? '' : error;
       sig = '';
       update(current, lastView);

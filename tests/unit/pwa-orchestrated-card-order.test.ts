@@ -38,6 +38,12 @@ describe('renderOrchestratedCard — band order', () => {
     expect(at(html, 'data-composer="orc-message"')).toBeGreaterThan(at(html, 'step-inline-session-mount'));
   });
 
+  it('renders the composer inside the feed, not as a box under it', () => {
+    const el = document.createElement('div');
+    el.innerHTML = renderOrchestratedCard(step(), { job: { id: 'j1' } });
+    expect(el.querySelector('.step-inline-session-mount [data-composer="orc-message"]')).not.toBeNull();
+  });
+
   // Identity is the exception that stays on top: it names what you're looking at, so it can't
   // be the thing you scroll back up for.
   it('keeps the identity row above everything', () => {

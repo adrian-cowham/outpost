@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { JobQueue } from './work-queue.js';
 import type { DraftVerdictDetail } from './draft-verdict.js';
-import type { SessionManager } from '../session/session-manager.js';
+import type { SessionManager, SessionExit } from '../session/session-manager.js';
 import type { WorktreeManager, WorktreeRecord } from '../git/worktree-manager.js';
 import type { LinearWriter } from '../integrations/linear-writer.js';
 import type {
@@ -57,7 +58,7 @@ import { readMergeReadiness } from './merge-readiness.js';
 import { readRerunReadiness } from './rerun-readiness.js';
 import { clampToCeiling, describePreapprovals, effectivePreapprovals } from './preapprovals.js';
 import { runGh as defaultRunGh, type RunGh } from '../integrations/gh-cli.js';
-import { gitMergingFromBase } from '../git/git-ops.js';
+import { gitHasUnpushedWork, gitMergingFromBase } from '../git/git-ops.js';
 import { reviewersForCwd } from '../git/pr-reviewers.js';
 import {
   currentDraftForRaiser, matchPinnedCall, writeGateFor,
@@ -644,6 +645,9 @@ export class WorkEngine {
         this.bindAction(j.orchestratorSessionId, j.orchestratorAction ?? 'meta.orchestrate');
       }
       for (const s of j.steps) {
+        // Manual sessions opened before they were stamped would otherwise list as the user's own
+        // sessions, showing up in the cockpit a second time beside their job.
+        if (s.type === 'action' && s.manualSession) this.stampActionSession(s.manualSession.id, s.action, s.title || 'Step');
         if (s.sessionId) {
           this.roleBySession.set(s.sessionId, { role: 'step', jobId: j.id, stepId: s.id });
           // `s.boundAction`, not just `actionNameForStep(s)` (== `s.controller` for an
@@ -701,9 +705,16 @@ export class WorkEngine {
     }
   }
 
-  // No-op stub kept for parity with the prior interface. Session role bookkeeping
-  // is in-memory only; on daemon restart all child sessions die anyway.
-  onSessionExit(_sessionId: string, _code: number | null): void { /* intentionally empty */ }
+  // A crash fires no Stop hook, so without this a step whose subprocess died stays `running` forever.
+  onSessionExit(sessionId: string, code: number | null, exit: SessionExit): void {
+    if (exit.expected) return;
+    const target = this.unresolvedFailable(sessionId);
+    if (!target) return;
+    this.cancelUnresolvedCheck(sessionId);
+    const tail = exit.stderrTail.trim().split('\n').slice(-5).join('\n');
+    this.onStepFailed(target.jobId, target.stepId,
+      `session exited unexpectedly (code ${code ?? 'none'})${tail ? `: ${tail}` : ''}`, { journal: false });
+  }
 
   private async tickOne(jobId: string): Promise<void> {
     let j = this.opts.queue.get(jobId);
@@ -780,6 +791,9 @@ export class WorkEngine {
       case 'resolve-wait':
         this.resolveWaitStep(a.jobId, a.stepId, 'timer');
         break;
+      case 'start-session':
+        await this.startSessionStep(a.jobId, a.stepId);
+        break;
       case 'deliver-inbox':
         deliverInbox(this.orchestratedHost(), a.jobId, a.stepId);
         this.syncOrchestratedWake(a.jobId, a.stepId);
@@ -823,6 +837,7 @@ export class WorkEngine {
       ...(input.preapprovals ? { preapprovals: input.preapprovals } : {}),
       ...(input.planReview ? { planReview: input.planReview } : {}),
       specGateMigrated: true,
+      dismissMigrated: true,
       state: 'planning',
       steps: [],
       events: [{ id: this.ctx.newId(), at: now, kind: 'created', who: input.source === 'linear' ? 'linear-poller' : 'user' }],
@@ -974,6 +989,18 @@ export class WorkEngine {
     this.opts.governor?.turnEnded(sessionId);
   }
 
+  // A quiet PR pushes nothing, so a held batch whose one-shot timer was lost would otherwise sit forever
+  redeliverParked(): void {
+    for (const j of this.opts.queue.list()) {
+      if (!this.jobAcceptsStepWork(j.id)) continue;
+      for (const s of j.steps) {
+        if (s.type !== 'orchestrated' || s.cancelled || s.failure || s.state !== 'waiting' || !s.inbox.length) continue;
+        if (s.sessionId && this.opts.interactive?.isInteractive(s.sessionId)) continue;
+        deliverInbox(this.orchestratedHost(), j.id, s.id);
+      }
+    }
+  }
+
   // Re-runs delivery at a controller's turn end: deliverInbox neither delivers nor arms a hold mid-turn
   onControllerTurnEnded(sessionId: string): void {
     const role = this.roleBySession.get(sessionId);
@@ -1020,6 +1047,14 @@ export class WorkEngine {
         }
       }
     }
+  }
+
+  dismissJob(jobId: string): 'ok' | 'not-found' | 'not-finished' {
+    const j = this.opts.queue.get(jobId);
+    if (!j) return 'not-found';
+    if (j.state !== 'done' && j.state !== 'failed') return 'not-finished';
+    this.mutate(jobId, (jj) => ({ ...jj, dismissedAt: this.ctx.now() }));
+    return 'ok';
   }
 
   async abandonJob(jobId: string): Promise<void> {
@@ -1478,9 +1513,8 @@ export class WorkEngine {
 
   // Re-run delivery once a step's external quiet period lapses. Ticking the job is enough: the
   // orchestrated handler's decide() re-asks shouldDeliver and returns deliver-inbox when the hold
-  // has expired, so this needs no state beyond the timer itself. Like the soak timers, these do
-  // not survive a restart — a held batch is then re-armed by whatever poll or resume comes next,
-  // and the watcher sweep is on a 5-minute cron, so nothing strands for long.
+  // has expired, so this needs no state beyond the timer itself. A timer lost to a restart, or
+  // never armed, is covered by redeliverParked on the next watcher sweep.
   private scheduleDelivery(jobId: string, stepId: string, at: number): void {
     const key = `${jobId}:${stepId}`;
     const existing = this.deliveryTimers.get(key);
@@ -1544,29 +1578,71 @@ export class WorkEngine {
   private async createWaitSession(jobId: string, stepId: string, pickedCwd?: string): Promise<{ sessionId: string; cwd: string }> {
     const step = this.opts.queue.get(jobId)?.steps.find((s) => s.id === stepId);
     if (!step) throw new WaitSessionError(404, 'step not found');
-    if (step.type !== 'action' || step.action !== 'meta.wait') throw new WaitSessionError(409, 'not a meta.wait step');
+    if (step.type !== 'action' || (step.action !== 'meta.wait' && step.action !== 'meta.session')) {
+      throw new WaitSessionError(409, 'not a meta.wait or meta.session step');
+    }
     if (step.manualSession) return { sessionId: step.manualSession.id, cwd: step.manualSession.cwd };
     if (step.state !== 'waiting' || step.cancelled || step.failure) throw new WaitSessionError(409, 'the wait is not parked');
-
-    let cwd: string;
-    if (step.workspace.kind === 'none') {
-      if (!pickedCwd) throw new WaitSessionError(400, 'cwd required for a wait with no workspace');
-      cwd = pickedCwd;
-    } else {
-      const err = workspaceError(step.workspace) ?? waitWorkspaceError(step.action, step.workspace);
-      if (err) throw new WaitSessionError(409, err);
-      const ws = await this.opts.worktreeManager.provision(stepId, step.workspace);
-      if (!ws.path) throw new WaitSessionError(409, 'workspace provisioned no checkout');
-      cwd = ws.path;
-    }
+    if (step.workspace.kind === 'none' && !pickedCwd) throw new WaitSessionError(400, 'cwd required for a wait with no workspace');
+    const cwd = await this.manualSessionCwd(step, pickedCwd ?? '');
 
     const job = this.opts.queue.get(jobId)!;
     const sessionId = this.ctx.newId();
     this.opts.writeSystemPrompt?.(sessionId, waitSessionContext(job, stepId));
+    this.stampActionSession(sessionId, step.action, step.title || 'Step');
     this.mutateStep(jobId, stepId, (s) => s.type === 'action'
       ? { ...s, manualSession: { id: sessionId, cwd }, updatedAt: this.ctx.now() }
       : s);
     return { sessionId, cwd };
+  }
+
+  private async manualSessionCwd(step: ActionStep, noneCwd: string): Promise<string> {
+    if (step.workspace.kind === 'none') return noneCwd;
+    const err = workspaceError(step.workspace) ?? waitWorkspaceError(step.action, step.workspace);
+    if (err) throw new WaitSessionError(409, err);
+    const ws = await this.opts.worktreeManager.provision(step.id, step.workspace);
+    if (!ws.path) throw new WaitSessionError(409, 'workspace provisioned no checkout');
+    return ws.path;
+  }
+
+  // A meta.session step just became active: start the user's session with the step's prompt as
+  // its first turn, and park the step behind it until they mark it done. The session is
+  // unbound — the user's own permissions, not an action allowlist — like a wait's.
+  private async startSessionStep(jobId: string, stepId: string): Promise<void> {
+    const step = this.opts.queue.get(jobId)?.steps.find((s) => s.id === stepId);
+    if (!step || step.type !== 'action') return;
+    const prompt = typeof step.inputs?.prompt === 'string' ? step.inputs.prompt.trim() : '';
+    if (!prompt) {
+      this.onStepFailed(jobId, stepId, 'meta.session needs a non-empty inputs.prompt', { journal: false });
+      return;
+    }
+    let cwd: string;
+    try {
+      cwd = await this.manualSessionCwd(step, homedir());
+    } catch (e) {
+      this.onStepFailed(jobId, stepId, (e as Error).message, { journal: false });
+      return;
+    }
+    const sessionId = this.ctx.newId();
+    this.submitLaunch({
+      key: `${jobId}#${stepId}`, jobId, stepId, sessionId, action: 'meta.session', label: 'meta.session',
+      run: () => {
+        const job = this.opts.queue.get(jobId);
+        const cur = job?.steps.find((x) => x.id === stepId);
+        if (!job || cur?.type !== 'action' || cur.state !== 'running' || cur.cancelled || cur.failure) return false;
+        this.opts.writeSystemPrompt?.(sessionId, waitSessionContext(job, stepId));
+        this.stampActionSession(sessionId, cur.action, cur.title || 'Step');
+        this.opts.sessionManager.spawnDetached(sessionId, cwd);
+        this.mutateStep(jobId, stepId, (st) => st.type === 'action'
+          ? this.appendStepEvent({ ...st, state: 'waiting', manualSession: { id: sessionId, cwd }, updatedAt: this.ctx.now() }, 'spawned', 'orchestrator')
+          : st);
+        this.mutate(jobId, (j) => this.appendEvent(j, {
+          kind: 'step_started', who: 'orchestrator', stepId, body: `${this.stepLabel(jobId, stepId)} — your session started`,
+        }));
+        this.opts.sessionManager.send(sessionId, { type: 'user', message: { role: 'user', content: prompt } });
+        return true;
+      },
+    });
   }
 
   // Called once at daemon startup: soak timers don't survive a restart. Re-arm every
@@ -2168,6 +2244,22 @@ export class WorkEngine {
     if (!this.jobAcceptsStepWork(jobId)) return;
     applyMove(this.orchestratedHost(), jobId, stepId, p);
     this.syncOrchestratedWake(jobId, stepId);
+    void this.refreshUnpushedWork(jobId, stepId);
+  }
+
+  // What PrWatcher reads into `pr.hasUnpushedWork`; undefined for a step with no live worktree
+  async readUnpushedWork(stepId: string): Promise<boolean | undefined> {
+    const rec = this.opts.worktreeManager.get(stepId);
+    if (!rec || rec.archivedAt) return undefined;
+    return gitHasUnpushedWork(rec.worktreePath);
+  }
+
+  // A controller that just parked on "push this" can't wait for the watcher's next sweep to say so
+  private async refreshUnpushedWork(jobId: string, stepId: string): Promise<void> {
+    const s = this.opts.queue.get(jobId)?.steps.find((x) => x.id === stepId);
+    if (s?.type !== 'orchestrated' || s.workspace.kind !== 'writable') return;
+    const has = await this.readUnpushedWork(stepId);
+    if (has !== undefined) this.applyPrFacts(jobId, stepId, { hasUnpushedWork: has });
   }
 
   pushStepInbox(jobId: string, stepId: string, item: NewItem): void {

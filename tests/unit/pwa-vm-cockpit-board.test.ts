@@ -16,9 +16,36 @@ const orc = (over: Record<string, unknown> = {}) => ({
 const board = (input: Record<string, unknown>) => cockpitBoard({ now: NOW, ...input });
 
 describe('sections', () => {
-  it('drops done and abandoned jobs, keeps failed', () => {
-    const b = board({ jobs: [job({ id: 'a', state: 'done' }), job({ id: 'b', state: 'abandoned' }), job({ id: 'c', state: 'failed' })] });
-    expect(b.started.map((r: any) => r.id)).toEqual(['c']);
+  it('keeps done and failed jobs until dismissed, drops abandoned', () => {
+    const b = board({ jobs: [
+      job({ id: 'done', state: 'done' }), job({ id: 'failed', state: 'failed' }),
+      job({ id: 'gone', state: 'done', dismissedAt: NOW }), job({ id: 'ab', state: 'abandoned' }),
+    ] });
+    const ids = [...b.started, ...b.notStarted, ...b.backlog].map((r: any) => r.id).sort();
+    expect(ids).toEqual(['done', 'failed']);
+  });
+
+  it('a done job reads Done and is dismissable', () => {
+    const b = board({ jobs: [job({ id: 'd', state: 'done', steps: [orc({ state: 'resolved' })] })] });
+    const r = b.started[0];
+    expect(r.status).toEqual({ text: 'Done', tone: 'mute' });
+    expect(r.tone).toBe('done');
+    expect(r.dismissable).toBe(true);
+    expect(r.actions).toEqual([]);
+    expect(b.tally.needYou).toBe(0);
+  });
+
+  it('finishing counts as activity, so a just-finished job rises', () => {
+    const b = board({ jobs: [
+      job({ id: 'live', state: 'executing', lastEngagedAt: NOW - 1_000 }),
+      job({ id: 'fin', state: 'done', lastEngagedAt: NOW - 9_000, updatedAt: NOW }),
+    ] });
+    expect(b.started.map((r: any) => r.id)).toEqual(['fin', 'live']);
+  });
+
+  it('a live job is not dismissable', () => {
+    const b = board({ jobs: [job({ id: 'x', state: 'executing' })] });
+    expect(b.started[0].dismissable).toBe(false);
   });
 
   it('splits started, not started and backlog', () => {
@@ -128,6 +155,13 @@ describe('session rows', () => {
     expect(r.tone).toBe('idle');
     expect(r.feeds).toEqual([]);
   });
+
+  it('holds a row for a session launched here before the daemon lists it', () => {
+    const slices = new Map([['new', { cwd: '/r/outpost', title: 'Fix it' }]]);
+    const b = board({ projects: proj({}), slices, launched: new Set(['new', 'm']) });
+    expect(b.sessions.map((r: any) => r.id)).toEqual(['new', 'm']);
+    expect(b.sessions[0]).toMatchObject({ key: 'session:new', title: 'Fix it', ref: 'r/outpost' });
+  });
 });
 
 describe('ordering', () => {
@@ -166,6 +200,10 @@ describe('stabilizeOrder', () => {
   it('drops a pinned row that left', () => {
     expect(stabilizeOrder(['a', 'b'], ['b'], new Set(['a']))).toEqual(['b']);
   });
+  it('moves a pinned row up when a row above it leaves, rather than backfilling', () => {
+    expect(stabilizeOrder(['a', 'b', 'c'], ['b', 'c'], new Set(['b']))).toEqual(['b', 'c']);
+    expect(stabilizeOrder(['a', 'b', 'c'], ['c', 'b'], new Set(['b']))).toEqual(['b', 'c']);
+  });
   it('has nothing to hold on first paint', () => {
     expect(stabilizeOrder(null, ['b', 'a'], new Set(['a']))).toEqual(['b', 'a']);
   });
@@ -176,9 +214,12 @@ describe('sessionsShownInBody', () => {
     expect(sessionsShownInBody({ kind: 'session', id: 'm', actions: [] }, 'caret')).toEqual(['m']);
   });
   it('a job action body shows driven sessions', () => {
-    const row = { kind: 'job', id: 'j', actions: [{ kind: 'driven', sessionId: 'x' }, { kind: 'gate' }] };
+    const row = { kind: 'job', id: 'j', actions: [{ kind: 'driven', sessionId: 'x' }, { kind: 'gate' }], feeds: [] };
     expect(sessionsShownInBody(row, 'action')).toEqual(['x']);
-    expect(sessionsShownInBody(row, 'caret')).toEqual([]);
     expect(sessionsShownInBody(row, null)).toEqual([]);
+  });
+  it('a job caret body takes over its steps’ feeds but leaves the planner’s on the row', () => {
+    const row = { kind: 'job', id: 'j', actions: [], feeds: [{ sessionId: 'o', stepId: null }, { sessionId: 's', stepId: 'st' }] };
+    expect(sessionsShownInBody(row, 'caret')).toEqual(['s']);
   });
 });

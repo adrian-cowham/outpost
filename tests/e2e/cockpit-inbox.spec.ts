@@ -37,7 +37,7 @@ test('an action proposal appears under Other without a reload', async ({ daemon,
   expect(posted.ok()).toBe(true);
 
   // No reload anywhere above — the proposal has to arrive over the WS broadcast.
-  const row = outpostPage.locator('[data-group="other"] .ckb-item .ckb-line').first();
+  const row = outpostPage.locator('[data-section="other"] .ckb-chip').first();
   await expect(row).toBeVisible();
   await expect(row).toContainText('code.implement');
   await expect(outpostPage.locator('.ckb-empty')).toBeHidden();
@@ -74,7 +74,7 @@ test('a new action proposal renders the file, not an all-plus diff', async ({ da
   expect(posted.ok()).toBe(true);
 
   await outpostPage.locator('.o-sidebar-item[data-surface="cockpit"]').click();
-  await outpostPage.locator('[data-group="other"] .ckb-item .ckb-line').first().click();
+  await outpostPage.locator('[data-section="other"] .ckb-chip').first().click();
 
   const block = outpostPage.locator('.lib-edit-card .lib-diff');
   await expect(block.locator('summary')).toContainText('New SKILL.md');

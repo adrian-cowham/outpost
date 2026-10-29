@@ -348,21 +348,19 @@ html[data-layout="desktop"] .o-frame-list .o-row.lr-row[hidden] { display: none;
 }
 
 /* An orchestrated step's VOLUNTARY gate — the controller asking a question before its own
-   next move, distinct from a write-draft approval (.wd-card below). A harder stop than a
-   meta.wait soak (the move is one decision away from running), so it carries the danger
-   accent, not warn. */
+   next move. It's the operator's move, not a failure, so it's warn (DESIGN §2.2). */
 .tl-gate {
   margin: 2px 0 8px;
   padding: 8px 12px;
   font-size: 13px;
   line-height: 1.5;
-  background: var(--danger-soft, var(--bg-elev-2));
-  border-left: 2px solid var(--danger);
+  background: var(--warn-soft, var(--bg-elev-2));
+  border-left: 3px solid var(--warn);
   border-radius: 0 var(--r-control) var(--r-control) 0;
 }
 .tl-gate-head {
   font-weight: 600;
-  color: var(--danger);
+  color: var(--warn);
 }
 .tl-gate-body {
   margin-top: 8px;
@@ -670,14 +668,6 @@ html[data-layout="desktop"] .o-frame-list .o-row.lr-row[hidden] { display: none;
 }
 .tl-step[data-collapsed="true"] .tl-content > .tl-ident { margin-bottom: 0; }
 
-/* Per-step token-launch-queue status — own row, same rhythm as .tl-ident. */
-.tl-launch {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 2px 0 8px;
-}
-
 /* ── Orchestrated step card ───────────────────────────────────────────────
    The body of a controller-owned step, in three bands (see orchestrated-card.js).
    Identity → record (`.orc-record`: PR block, dispatches, trail strip) → live
@@ -769,7 +759,7 @@ html[data-layout="desktop"] .o-frame-list .o-row.lr-row[hidden] { display: none;
    The frame owns the border, and its bar carries the way out: an accented title bar says the
    step is under manual control without the window itself shouting it. */
 .step-drive {
-  margin: 8px 6px 4px;
+  margin: 8px 0 4px;
   border: 1px solid var(--accent);
   border-radius: var(--r-container);
   overflow: hidden;
@@ -813,6 +803,28 @@ html[data-layout="desktop"] .o-frame-list .o-row.lr-row[hidden] { display: none;
 .orc-msg .thread-composer-row { display: none; }
 .orc-msg:focus-within .thread-composer-row,
 .orc-msg.is-open .thread-composer-row { display: flex; }
+
+/* Inside the feed it's the feed's last row, not a second box under it: below the thinking
+   strip (order 2), split off by a hairline, and the input borrows the feed's surface. */
+.step-inline-session > .thread-composer.orc-msg {
+  order: 3;
+  flex-direction: row;
+  align-items: flex-end;
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line-soft);
+}
+.step-inline-session > .orc-msg .thread-composer-row { flex: none; }
+.step-inline-session > .orc-msg .thread-compose-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 0;
+  background: transparent;
+  border-color: transparent;
+  border-radius: 0;
+}
+.step-inline-session > .orc-msg .thread-compose-input:focus { border-color: transparent; }
+.step-inline-session > .orc-msg:focus-within { border-top-color: var(--accent); }
 
 /* ── Record band ──────────────────────────────────────────────────────────
    Everything that accumulates rather than changes: the PR, settled dispatches,
@@ -1697,7 +1709,7 @@ a.thread-loc:hover { text-decoration: underline; }
 .thread-compose-input {
   width: 100%; box-sizing: border-box;
   padding: 10px 12px;
-  font-size: 14px; line-height: 1.55;
+  font-family: inherit; font-size: 14px; line-height: 1.55;
   background: var(--bg); color: var(--text);
   border: 1px solid var(--line);
   border-radius: var(--r-control);
@@ -1981,7 +1993,7 @@ a.thread-loc:hover { text-decoration: underline; }
 /* Per-step findings collapse — the findings box (.plan-findings) is a <details>
    in the timeline (.tl-findings). Collapsed, only the "Findings ▾" summary shows,
    so the step reads as name + description + inline feed; expanded reveals the
-   output. Native disclosure; open state persists via detail.js's snapshotUi. */
+   output. Native disclosure; open state persists via repaint-ui.js's snapshotUi. */
 .tl-findings > summary {
   list-style: none; cursor: pointer; user-select: none;
   display: flex; align-items: center; gap: 8px;

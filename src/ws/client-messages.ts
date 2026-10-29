@@ -6,6 +6,7 @@
 // safe, and that's easiest to pin down in an isolated, unit-testable function.
 import { parseJsonObject } from '../routes/util.js';
 import type { ApprovalMode } from '../permissions/approval-mode.js';
+import { buildUserContent, makeUploadSaver, parseAttachments, type UserContent } from '../session/attachments.js';
 
 type RawFrame = Buffer | ArrayBuffer | Buffer[];
 
@@ -76,6 +77,20 @@ export interface SessionMessageDeps {
   shell?: ShellTarget;
   log?: (line: string) => void;
   onUserMessage?: (sessionId: string) => void;
+  // Where a non-image attachment is written (`<root>/<sessionId>/…`); absent, files are refused.
+  uploadsRoot?: string;
+  // Answers only the socket the frame arrived on — a refused message is news to its sender alone
+  reply?: (message: unknown) => void;
+}
+
+// Everything is parsed before anything is written or sent, so a bad attachment refuses the whole
+// message. Files are written before the send, so a failed send leaves them in the session's uploads
+// dir (and a retry writes them again); SessionStore.delete removes the dir with the session.
+function userContent(msg: Record<string, unknown>, sessionId: string, blocks: string, deps: SessionMessageDeps): UserContent {
+  const text = blocks + (typeof msg.content === 'string' ? msg.content : '');
+  const attachments = parseAttachments(msg.attachments);
+  if (attachments.some((a) => a.kind === 'file') && !deps.uploadsRoot) throw new Error('file uploads are not available');
+  return buildUserContent(text, attachments, deps.uploadsRoot ? makeUploadSaver(deps.uploadsRoot, sessionId) : () => '');
 }
 
 export function handleSessionMessage(raw: RawFrame, sessionId: string, deps: SessionMessageDeps): void {
@@ -83,22 +98,36 @@ export function handleSessionMessage(raw: RawFrame, sessionId: string, deps: Ses
   if (!msg) return;
   const log = deps.log ?? (() => {});
   if (msg.type === 'user_message') {
-    const { content } = msg as { content: string };
     // `!` output the user produced since their last message rides in ahead of what they
     // typed — see SessionShell. Nothing is sent when they only ran commands, so the
     // blocks wait here rather than costing a turn of their own.
     const blocks = deps.shell?.drain(sessionId) ?? '';
+    // Echoed on a refusal so the PWA can put that message back in the composer
+    const clientId = typeof msg.clientId === 'string' && msg.clientId.length <= 64 ? msg.clientId : undefined;
+    const refuse = (e: Error) => {
+      deps.shell?.restore(sessionId, blocks);
+      log(`[api] user_message to ${sessionId.slice(0, 8)} refused: ${e.message}`);
+      const frame = { type: 'daemon_error', message: `Message not sent — ${e.message}`, ...(clientId ? { clientId } : {}) };
+      if (deps.reply) deps.reply(frame);
+      else deps.manager.broadcast(sessionId, frame);
+    };
+    let content: UserContent;
+    try {
+      content = userContent(msg, sessionId, blocks, deps);
+    } catch (e) {
+      refuse(e as Error);
+      return;
+    }
     // SessionManager.send throws when the session isn't in `active` — which a client
     // can trigger any time by typing into a session whose subprocess has since exited
     // (a daemon restart drops every active entry while the PWA keeps showing them).
     // Unguarded, that throw unwinds through ws.on('message') and kills the daemon,
     // which drops every other session too. Report it, don't die.
     try {
-      deps.manager.send(sessionId, { type: 'user', message: { role: 'user', content: blocks + content } });
+      deps.manager.send(sessionId, { type: 'user', message: { role: 'user', content } });
       deps.onUserMessage?.(sessionId);
     } catch (e) {
-      deps.shell?.restore(sessionId, blocks);
-      log(`[api] user_message to ${sessionId.slice(0, 8)} failed: ${(e as Error).message}`);
+      refuse(e as Error);
     }
   } else if (msg.type === 'shell_exec') {
     const { execId, command } = msg as { execId?: string; command?: string };

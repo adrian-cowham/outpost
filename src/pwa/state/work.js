@@ -125,6 +125,7 @@ export const work = {
   async reject(id, body)         { return call(() => workApi.reject(id, body)); },
   async abandon(id)              { return call(() => workApi.abandon(id)); },
   async markDone(id)             { return call(() => workApi.markDone(id)); },
+  async dismiss(id)              { return call(() => workApi.dismiss(id)); },
   async deleteJob(id)            { await workApi.deleteJob(id); store.set((s) => removeOne(s, id)); },
   async launchOrchestrator(id, context) { const r = await call(() => workApi.launchOrchestrator(id, context)); await this.loadOne(id); return r; },
   async replan(id, feedback)     { return call(() => workApi.replan(id, feedback)); },

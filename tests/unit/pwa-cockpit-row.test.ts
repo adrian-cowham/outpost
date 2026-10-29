@@ -20,4 +20,21 @@ describe('cockpit row archive', () => {
     expect(row.el.querySelector('.ckb-status')!.textContent).toBe('Archive failed: HTTP 500');
     expect(row.el.querySelector('.ckb-archive')!.textContent).toBe('Archive');
   });
+
+  it('a dismissable job shows Dismiss in the archive slot and calls onArchive', () => {
+    const job = { ...model, key: 'job:j', kind: 'job', id: 'j', ref: null, dismissable: true, status: { text: 'Done', tone: 'mute' } };
+    let archived: any = null;
+    const row = createRow(job, { onToggle: noop, onAction: noop, onArchive: (m: any) => { archived = m; }, onOpenFull: noop, onHover: noop, initialView: view });
+    const btn = row.el.querySelector('.ckb-archive') as HTMLButtonElement;
+    expect(btn.hidden).toBe(false);
+    expect(btn.textContent).toBe('Dismiss');
+    btn.click();
+    expect(archived?.key).toBe('job:j');
+  });
+
+  it('a live job has no archive slot', () => {
+    const job = { ...model, key: 'job:j', kind: 'job', id: 'j', dismissable: false };
+    const row = createRow(job, { onToggle: noop, onAction: noop, onArchive: noop, onOpenFull: noop, onHover: noop, initialView: view });
+    expect((row.el.querySelector('.ckb-archive') as HTMLButtonElement).hidden).toBe(true);
+  });
 });

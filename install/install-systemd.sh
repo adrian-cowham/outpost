@@ -26,8 +26,8 @@ if [[ ! -x "$NODE_PATH" ]]; then
   exit 1
 fi
 if [[ ! -f "$TSX_PATH" ]]; then
-  echo "tsx not found at $TSX_PATH. Run 'npm install' in $PROJECT_ROOT first." >&2
-  exit 1
+  echo "Installing dependencies..."
+  npm install --prefix "$PROJECT_ROOT"
 fi
 if ! command -v expect >/dev/null; then
   echo "warning: expect(1) not installed — logging in to Claude / MCP servers from the PWA won't work." >&2
@@ -40,6 +40,12 @@ PATH_FOR_SYSTEMD="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
 mkdir -p "$UNIT_DIR"
 systemctl --user stop "$UNIT_NAME" 2>/dev/null || true
 pkill -f "tsx src/daemon.ts" 2>/dev/null || true
+sleep 1
+
+# shellcheck source=ports.sh
+source "$PROJECT_ROOT/install/ports.sh"
+persist_port_overrides
+check_ports_free
 
 sed \
   -e "s|__NODE_PATH__|$NODE_PATH|g" \
@@ -60,6 +66,7 @@ fi
 sleep 2
 if systemctl --user is-active --quiet "$UNIT_NAME"; then
   echo "✓ $UNIT_NAME.service running (pid $(systemctl --user show "$UNIT_NAME" -p MainPID --value))"
+  print_open_url
   echo "  logs:    journalctl --user -u $UNIT_NAME -f"
   echo "  restart: systemctl --user restart $UNIT_NAME"
   echo "  stop:    systemctl --user stop $UNIT_NAME"

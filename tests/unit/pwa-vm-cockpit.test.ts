@@ -186,6 +186,14 @@ describe('cockpitInbox — broken', () => {
     });
   });
 
+  it('leaves out a failed job that was dismissed', () => {
+    const { broken } = cockpitInbox({
+      now: NOW,
+      jobs: [{ id: 'j1', title: 'Broken job', state: 'failed', updatedAt: NOW - 400, steps: [], dismissedAt: NOW }],
+    });
+    expect(broken).toEqual([]);
+  });
+
   it('includes a failed step on a live job, with the failure text as detail', () => {
     const { broken } = cockpitInbox({
       now: NOW,

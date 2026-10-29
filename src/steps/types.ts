@@ -9,6 +9,8 @@ export type Action =
   // engine.resumeWait() directly.
   | { kind: 'enter-wait'; jobId: string; stepId: string; durationSec?: number }
   | { kind: 'resolve-wait'; jobId: string; stepId: string; by: 'timer' }
+  // meta.session (builtin runner): park the step and start the user's session on it.
+  | { kind: 'start-session'; jobId: string; stepId: string }
   | { kind: 'deliver-inbox'; jobId: string; stepId: string }
   | { kind: 'write-linear-in-progress'; linearUuid: string; jobId: string }
   | { kind: 'write-linear-in-review';   linearUuid: string; jobId: string }

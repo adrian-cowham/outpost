@@ -10,7 +10,7 @@ import { isTerminalStep, hasUnapprovedDraft, draftAwaitsUser } from '../../vm/wo
 import { shortName } from '../../utils/formatting.js';
 import { stepFeedHtml } from './wheel-toggle.js';
 import { sessionsApi } from '../../net/sessions.js';
-import { waitSessionLabel, openWaitStepSession } from './wait-session.js';
+import { waitSessionLabel, openWaitStepSession, isSessionStep } from './wait-session.js';
 
 function escapeHtml(s) { return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
 
@@ -58,7 +58,7 @@ function stateTone(s) {
 // one is only built for it when the step is foldable — folded, the card is hidden and this is
 // the third of the three lines that survive. `folded` marks it so CSS can drop it again once
 // the card comes back.
-function identRowHtml(s, { folded = false } = {}) {
+function identRowHtml(s, { folded = false, launch = '' } = {}) {
   const bits = [];
   const name = s.type === 'orchestrated' ? s.controller : s.action;
   if (name) {
@@ -71,6 +71,7 @@ function identRowHtml(s, { folded = false } = {}) {
     // rather than taking the ref chip the branch gets.
     bits.push(`<span class="tl-ident-repo">${escapeHtml(shortName(s.workspace.repoCwd))}</span>`);
   }
+  if (launch) bits.push(launch);
   if (!bits.length) return '';
   return `<div class="tl-ident${folded ? ' tl-ident--folded' : ''}">${bits.join('')}</div>`;
 }
@@ -119,10 +120,10 @@ function actionFor(job, s) {
   if (s.type === 'orchestrated') return '';
   // meta.wait hold: let the user release it early (timed) or at all (indefinite).
   if (s.type === 'action' && s.state === 'waiting') {
-    return `<button class="o-btn o-btn--primary" data-step-action="resume">Resume now</button>`
+    return `<button class="o-btn o-btn--primary" data-step-action="resume">${isSessionStep(s) ? 'Done' : 'Resume now'}</button>`
       + waitSessionButton(job, s);
   }
-  if (s.type === 'action' && s.action === 'meta.wait') return waitSessionButton(job, s);
+  if (s.type === 'action' && (s.action === 'meta.wait' || isSessionStep(s))) return waitSessionButton(job, s);
   // human_gate: the drafted write itself renders via renderWriteDraft (draftsHtml below),
   // which carries its own Accept/Propose changes/Deny buttons — nothing to add here.
   // Resolve is a manual fallback for action steps whose session subprocess
@@ -255,17 +256,12 @@ function pendingDrafts(s) {
   return (s.drafts ?? []).filter((d) => draftAwaitsUser(s, d));
 }
 
-// Token-launch-queue status for this step, in its own row (never crammed onto
-// tl-hdr alongside the name/skill/time).
-function launchRowHtml(job, s) {
+// Token-launch-queue status for this step, on the identity row beside the action chip.
+function launchBadgeHtml(job, s) {
   const badge = stepLaunchBadge(job, s.id);
   if (!badge) return '';
-  return `
-    <div class="tl-launch">
-      <span class="o-pill ${launchPillClass(badge.kind)}">${escapeHtml(badge.label)}</span>
-      ${badge.kind === 'queued' ? `<button type="button" class="o-btn o-btn--primary" data-step-action="launch-now">Launch</button>` : ''}
-    </div>
-  `;
+  return `<span class="o-pill ${launchPillClass(badge.kind)}">${escapeHtml(badge.label)}</span>`
+    + (badge.kind === 'queued' ? `<button type="button" class="o-btn o-btn--primary" data-step-action="launch-now">Launch</button>` : '');
 }
 
 // ── Finished-step fold ──────────────────────────────────────────────────
@@ -313,7 +309,7 @@ export function renderTimelineStep(job, s, index, groupPos, opts = {}) {
   // Findings are the long tail of a step — collapse them once the step is done so
   // the timeline reads as a compact list of names/descriptions, expandable on demand.
   // Live/failed steps stay open (you're actively reading the result). Native
-  // <details>; open state survives repaints via detail.js's snapshotUi.
+  // <details>; open state survives repaints via repaint-ui.js's snapshotUi.
   const findingsOpen = s.state !== 'resolved';
   const groupAttr = groupPos ? ` data-group-pos="${groupPos}"` : '';
   // An orchestrated step's session mount is rendered by the card itself, so its composer can
@@ -322,21 +318,21 @@ export function renderTimelineStep(job, s, index, groupPos, opts = {}) {
   const action = actionFor(job, s);
   const foldable = stepIsFoldable(s);
   const folded = foldable && !expandedSteps.has(s.id);
+  const launch = launchBadgeHtml(job, s);
   return `
     <div class="tl-step" data-step-id="${escapeHtml(s.id)}" data-cancelled="${!!s.cancelled}" data-collapsed="${folded}"${groupAttr}>
       <div class="tl-dot" data-tone="${tone}">${dotGlyph(tone)}</div>
       <div class="tl-content">
         ${headerHtml(s, { title, foldable, folded })}
         ${desc ? `<div class="tl-summary">${escapeHtml(desc)}</div>` : ''}
-        ${orchestrated ? (foldable ? identRowHtml(s, { folded: true }) : '') : identRowHtml(s)}
+        ${orchestrated ? (foldable ? identRowHtml(s, { folded: true }) : '') : identRowHtml(s, { launch })}
         <div class="tl-body">
           ${s.failure ? `<div class="tl-failure">${escapeHtml(s.failure.reason ?? 'Step failed')}</div>` : ''}
           ${attemptsHtml(s)}
           ${waitBlockHtml(s)}
           ${draftsHtml(s)}
-          ${launchRowHtml(job, s)}
           ${orchestrated ? '' : stepFeedHtml(job, s)}
-          ${orchestrated ? renderOrchestratedCard(s, { job }) : ''}
+          ${orchestrated ? renderOrchestratedCard(s, { job, launch }) : ''}
           ${output ? `<details class="plan-findings tl-findings"${findingsOpen ? ' open' : ''}><summary class="tl-findings-sum"><span class="plan-findings-label o-microhead">Findings</span><span class="tl-findings-caret" aria-hidden="true">▾</span></summary><div class="step-findings md-body">${output}</div></details>` : ''}
           ${action ? `<div class="step-actions">${action}</div>` : ''}
         </div>
@@ -369,7 +365,7 @@ export function wireTimelineStep(el, job, s) {
         // work_job_changed, which repaints the card and discards this element.
         btn.disabled = true;
         void sessionsApi.setInteractive(sessionId, taking)
-          .catch((err) => alert(`${taking ? 'Take the wheel' : 'Hand back'} failed: ${err?.message ?? err}`))
+          .catch((err) => alert(`${taking ? 'Drive' : 'Hand back'} failed: ${err?.message ?? err}`))
           .finally(() => { btn.disabled = false; });
       }
     });

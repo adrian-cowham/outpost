@@ -25,6 +25,7 @@ describe('plannable scope', () => {
       'code.review-diff',
       'code.review-ui',
       'code.security-review',
+      'meta.session',
       'meta.wait',
       'read.investigate',
       'write.add-project',

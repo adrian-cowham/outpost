@@ -2,20 +2,24 @@
 // body is the row's full story. Both mount the same renderers Tracked and Sessions use.
 
 import { work } from '../../state/work.js';
-import { nav } from '../../state/nav.js';
+import { nav, peekSessionHint } from '../../state/nav.js';
 import { orchestratedRows } from '../../vm/tracked.js';
 import { isTerminalStep } from '../../vm/work-predicates.js';
 import { OPENABLE } from '../../vm/cockpit-board.js';
 import {
-  controllerGateHtml, controllerGateActionsHtml, controllerComposerHtml,
-  artifactTrailHtml, wireArtifactTrail, wireControllerControls,
+  controllerGateHtml, controllerGateActionsHtml, wireArtifactTrail, wireControllerControls,
 } from '../work/controller-controls.js';
 import { renderPlanSection, wirePlanActions, wirePlanPreapprovals } from '../work/plan-section.js';
 import { renderWriteDraft, wireWriteDraft } from '../work/write-draft-card.js';
+import { renderTimelineStep, wireTimelineStep, computeGroupPositions } from '../work/step-card.js';
+import { createInlineMounts } from '../tracked/session-mounts.js';
+import { snapshotUi, restoreUi } from '../work/repaint-ui.js';
+import { prPatches } from '../../state/pr-patches.js';
+import { worktreeChanges } from '../../state/worktree-changes.js';
 import { stepDotState } from '../work/ticket-row.js';
 import { actionCategory, actionDisplayName } from '../work/action-icon.js';
 import { openAddStepDialog } from '../work/add-step-dialog.js';
-import { waitSessionLabel, openWaitStepSession } from '../work/wait-session.js';
+import { waitSessionLabel, openWaitStepSession, isSessionStep } from '../work/wait-session.js';
 import { mountSessionView } from '../session-view/index.js';
 import { sessionsApi } from '../../net/sessions.js';
 import { wireAutogrow } from '../../utils/autogrow.js';
@@ -46,10 +50,12 @@ const ACTION_HTML = {
       </div>`;
   },
   wait(job, a) {
-    const sessionLabel = waitSessionLabel(job, stepOf(job, a.stepId));
-    return `<div class="ckb-tl-sub">${escapeHtml(a.reason || 'Holding until you resume.')}</div>
+    const step = stepOf(job, a.stepId);
+    const sessionLabel = waitSessionLabel(job, step);
+    const session = isSessionStep(step);
+    return `<div class="ckb-tl-sub">${escapeHtml(a.reason || (session ? 'Your session — mark it done when you are.' : 'Holding until you resume.'))}</div>
       <div class="ckb-body-actions">
-        <button type="button" class="o-btn o-btn--primary" data-ckb-body="resume-wait" data-step-id="${escapeHtml(a.stepId)}">Resume</button>
+        <button type="button" class="o-btn o-btn--primary" data-ckb-body="resume-wait" data-step-id="${escapeHtml(a.stepId)}">${session ? 'Done' : 'Resume'}</button>
         ${sessionLabel ? `<button type="button" class="o-btn o-btn--default" data-ckb-body="wait-session" data-step-id="${escapeHtml(a.stepId)}">${escapeHtml(sessionLabel)}</button>` : ''}
         <button type="button" class="o-btn o-btn--danger" data-ckb-body="abandon">Abandon job</button>
       </div>
@@ -69,25 +75,35 @@ function actionBodyHtml(job, model) {
   return model.actions.map((a) => ACTION_HTML[a.kind]?.(job, a) ?? '').join('') + openFullHtml();
 }
 
+// The step the job is on — its first unfinished or failed step, with any parallel siblings still in
+// play — renders in full; the rest stay one line each.
+function currentStepIds(steps) {
+  const inPlay = (s) => !!s.failure || !isTerminalStep(s);
+  const i = steps.findIndex(inPlay);
+  if (i < 0) return new Set();
+  const group = steps[i].parallelGroup;
+  return new Set(steps
+    .filter((s, k) => (k === i || (group != null && s.parallelGroup === group)) && inPlay(s))
+    .map((s) => s.id));
+}
+
 function timelineHtml(job, now) {
   const steps = (job.steps ?? []).filter((s) => !s.cancelled);
   if (!steps.length) return '';
-  const rows = steps.map((s) => {
+  const current = currentStepIds(steps);
+  const positions = computeGroupPositions(steps);
+  const rows = steps.map((s, i) => {
+    if (current.has(s.id)) {
+      return `<div class="ckb-tl-current">${renderTimelineStep(job, s, i, positions[i])}</div>`;
+    }
     const action = s.type === 'action' ? s.action : s.controller;
-    const vm = s.type === 'orchestrated' ? orchestratedRows(s) : null;
     return `
       <span class="step-dot" data-state="${stepDotState(s)}"></span>
       <span>${escapeHtml(s.title ?? '')}</span>
       <span class="type-mono" data-cat="${escapeHtml(actionCategory(action))}">${escapeHtml(actionDisplayName(action))}</span>
-      <span class="ckb-tl-age">${escapeHtml(relPast(s.updatedAt ?? job.updatedAt, now) ?? '')}</span>
-      ${vm?.statusLine ? `<span class="ckb-tl-sub">${escapeHtml(vm.statusLine)}</span>` : ''}
-      ${vm?.artifactRows.length ? `<span class="ckb-tl-sub" data-ckb-step="${escapeHtml(s.id)}">${artifactTrailHtml(s, vm)}</span>` : ''}`;
+      <span class="ckb-tl-age">${escapeHtml(relPast(s.updatedAt ?? job.updatedAt, now) ?? '')}</span>`;
   }).join('');
   return `<div class="ckb-tl">${rows}</div>`;
-}
-
-function liveController(job) {
-  return (job.steps ?? []).find((s) => s.type === 'orchestrated' && !s.cancelled && !isTerminalStep(s)) ?? null;
 }
 
 function fieldKey(f, i) {
@@ -201,73 +217,73 @@ function isPlanView(job) {
   return !job.steps?.length || job.state === 'plan_pending_review';
 }
 
-// The timeline repaints with the job; the composer region is only rebuilt when the live
-// controller changes, so typing in it survives every watcher sync.
+// Repaints only when something the step card reads has moved, so live feeds keep their mounts
+// and typing survives everything else.
+function stepsPaintKey(job) {
+  return [job.id, job.updatedAt, JSON.stringify(job.live ?? null), prPatches.get().version,
+    worktreeChanges.get().version, [...work.get().openingWaits].join(',')].join(':');
+}
+
 function mountCaretBody(el, model) {
   let layout = null;
-  let tlHtml = null;
-  let composerFor;
+  let paintKey = null;
   let regions = null;
+  let current = model;
+  const mounts = createInlineMounts();
 
   const build = (job) => {
     layout = isPlanView(job) ? 'plan' : 'tl';
-    el.innerHTML = layout === 'plan'
-      ? `<div data-ckb-region="plan"></div>${openFullHtml()}`
-      : `<div data-ckb-region="tl"></div><div data-ckb-region="compose"></div>${openFullHtml()}`;
-    regions = {
-      plan: el.querySelector('[data-ckb-region="plan"]'),
-      tl: el.querySelector('[data-ckb-region="tl"]'),
-      compose: el.querySelector('[data-ckb-region="compose"]'),
-    };
-    tlHtml = null;
-    composerFor = undefined;
+    mounts.teardown();
+    el.innerHTML = `<div data-ckb-region="${layout}"></div>${openFullHtml()}`;
+    regions = { plan: el.querySelector('[data-ckb-region="plan"]'), tl: el.querySelector('[data-ckb-region="tl"]') };
+    paintKey = null;
     wireBodyButtons(el, job);
   };
 
+  const paintSteps = (job) => {
+    const key = stepsPaintKey(job);
+    if (key === paintKey) return;
+    paintKey = key;
+    const snap = regions.tl.firstChild ? snapshotUi(regions.tl) : null;
+    regions.tl.innerHTML = timelineHtml(job, Date.now());
+    mounts.sync(regions.tl, job);
+    regions.tl.querySelectorAll('.tl-step').forEach((stepEl) => {
+      const step = stepOf(job, stepEl.getAttribute('data-step-id'));
+      if (step) wireTimelineStep(stepEl, job, step);
+    });
+    wireAutogrow(regions.tl);
+    if (snap) restoreUi(regions.tl, snap);
+  };
+
   const paint = (m) => {
+    current = m;
     const job = work.get().byId.get(m.id);
     if (!job) return;
     if (layout !== (isPlanView(job) ? 'plan' : 'tl')) build(job);
-    if (layout === 'plan') {
-      const html = `<div data-ckb-plan>${renderPlanSection(job, {})}</div>`;
-      if (html === tlHtml) return;
-      tlHtml = html;
-      rerender(regions.plan, html, () => {
-        wirePlanActions(regions.plan, job);
-        wirePlanPreapprovals(regions.plan, `plan:${job.id}`);
-        wireAutogrow(regions.plan);
-      });
-      return;
-    }
-    const html = timelineHtml(job, Date.now());
-    if (html !== tlHtml) {
-      const open = [...regions.tl.querySelectorAll('.orc-trail-chip.is-open')]
-        .map((c) => [c.closest('[data-ckb-step]')?.getAttribute('data-ckb-step'), c.getAttribute('data-trail-chip')]);
-      tlHtml = html;
-      regions.tl.innerHTML = html;
-      wireStepControls(regions.tl, job);
-      for (const [stepId, slug] of open) {
-        regions.tl.querySelector(`[data-ckb-step="${CSS.escape(stepId ?? '')}"] .orc-trail-chip[data-trail-chip="${CSS.escape(slug ?? '')}"]`)?.click();
-      }
-    }
-    const ctl = liveController(job);
-    if ((ctl?.id ?? null) !== composerFor) {
-      composerFor = ctl?.id ?? null;
-      regions.compose.innerHTML = ctl ? `<div data-ckb-step="${escapeHtml(ctl.id)}">${controllerComposerHtml(ctl)}</div>` : '';
-      if (ctl) {
-        wireControllerControls(regions.compose, job, ctl);
-        wireAutogrow(regions.compose);
-      }
-    }
+    if (layout === 'tl') { paintSteps(job); return; }
+    const html = `<div data-ckb-plan>${renderPlanSection(job, {})}</div>`;
+    if (html === paintKey) return;
+    paintKey = html;
+    rerender(regions.plan, html, () => {
+      wirePlanActions(regions.plan, job);
+      wirePlanPreapprovals(regions.plan, `plan:${job.id}`);
+      wireAutogrow(regions.plan);
+    });
   };
   paint(model);
-  return { update: paint, unmount() { el.textContent = ''; } };
+  // PR file diffs and the worktree change count land outside the job record, like in Tracked.
+  const unsubs = [prPatches, worktreeChanges].map((store) => store.subscribe(() => paint(current)));
+  return {
+    update: paint,
+    unmount() { for (const u of unsubs) u(); mounts.teardown(); el.textContent = ''; },
+  };
 }
 
 function mountSessionBody(el, model) {
   el.innerHTML = `<div class="ckb-session"></div>
     <div class="ckb-body-actions"><button type="button" class="o-btn o-btn--ghost sm" data-ckb-body="open-full">Open full ↗</button></div>`;
-  const view = mountSessionView(el.querySelector('.ckb-session'), model.id, { cwd: model.cwd, scopedHotkeys: true });
+  const ctx = peekSessionHint(model.id) ?? { cwd: model.cwd };
+  const view = mountSessionView(el.querySelector('.ckb-session'), model.id, { ...ctx, scopedHotkeys: true });
   el.querySelector('[data-ckb-body="open-full"]').addEventListener('click', (e) => {
     e.stopPropagation();
     nav.select('sessions', model.id);

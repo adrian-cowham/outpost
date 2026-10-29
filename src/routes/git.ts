@@ -13,7 +13,7 @@ import {
 import { draftPrDescription } from '../git/pr-draft.js';
 import { reviewersForCwd } from '../git/pr-reviewers.js';
 import type { GitCommandResult } from '../git/git-ops.js';
-import { handleDiffRoute } from '../git/diff-endpoint.js';
+import { handleDiffFileRoute, handleDiffRoute } from '../git/diff-endpoint.js';
 import { DEFAULT_EDITOR_COMMAND, openInEditor } from '../git/open-in-editor.js';
 import type { PreferencesStore } from '../storage/preferences-store.js';
 import { readJsonObject } from './util.js';
@@ -89,6 +89,25 @@ export function registerGitRoutes(server: Server, deps: GitRoutesDeps): void {
     const mode = url.searchParams.get('mode') ?? 'branch';
     try {
       const result = handleDiffRoute(worktreeManager, sessionStore, m[1]!, mode, engine);
+      res.statusCode = result.status;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify(result.body));
+    } catch (err) {
+      res.statusCode = 500;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ error: (err as Error).message }));
+    }
+  });
+
+  server.route('GET', '/api/sessions/:id/diff/file', (req, res) => {
+    const url = new URL(req.url ?? '/', 'http://x');
+    const m = url.pathname.match(/^\/api\/sessions\/([\w-]+)\/diff\/file$/);
+    if (!m) { res.statusCode = 404; res.end('not found'); return; }
+    const q = url.searchParams;
+    try {
+      const result = handleDiffFileRoute(
+        worktreeManager, sessionStore, m[1]!, q.get('mode') ?? 'branch', q.get('path'), q.get('oldPath'), engine,
+      );
       res.statusCode = result.status;
       res.setHeader('content-type', 'application/json');
       res.end(JSON.stringify(result.body));
@@ -337,10 +356,10 @@ export function registerGitRoutes(server: Server, deps: GitRoutesDeps): void {
       return;
     }
     if (refuseIfReadonly(worktreeManager, engine, m[1]!, res)) return;
-    const payload = await readJsonObject<{ title?: string; body?: string; base?: string }>(req, res, { allowEmpty: true });
+    const payload = await readJsonObject<{ title?: string; body?: string; base?: string; draft?: boolean }>(req, res, { allowEmpty: true });
     if (!payload) return;
     engine.markPrOpening(m[1]!);
-    const result = await gitOpenPr(resolved.cwd, { ...payload, reviewers: reviewersForCwd(preferencesStore.getPrReviewers(), resolved.cwd) });
+    const result = await gitOpenPr(resolved.cwd, { ...payload, draft: payload.draft === true, reviewers: reviewersForCwd(preferencesStore.getPrReviewers(), resolved.cwd) });
     engine.finishPrOpening(m[1]!, result.ok ? result.url : undefined);
     let status;
     try { status = await gitStatus(resolved.cwd); } catch { status = null; }
@@ -397,7 +416,7 @@ export function registerGitRoutes(server: Server, deps: GitRoutesDeps): void {
       res.end(JSON.stringify({ error: 'this session\'s workspace is a read-only checkout — finalize is not available' }));
       return;
     }
-    const payload = await readJsonObject<{ kind?: string; message?: string; newBranch?: string; push?: boolean; prTitle?: string; prBody?: string }>(req, res);
+    const payload = await readJsonObject<{ kind?: string; message?: string; newBranch?: string; push?: boolean; prTitle?: string; prBody?: string; draft?: boolean }>(req, res);
     if (!payload) return;
     const message = typeof payload.message === 'string' ? payload.message : '';
     if (message.trim().length === 0) {
@@ -439,9 +458,10 @@ export function registerGitRoutes(server: Server, deps: GitRoutesDeps): void {
       // Only the squash path opens a PR; an append fast-forwards one that's already there.
       if (!exists) engine.markPrOpening(sessionId);
       const reviewers = reviewersForCwd(preferencesStore.getPrReviewers(), rec.worktreePath);
+      const draft = payload.draft === true;
       const result: GitCommandResult & { url?: string; warning?: string } = exists
-        ? await gitFinalizeAppendToBranch({ worktreePath: rec.worktreePath, branch: payload.newBranch, baseBranch, reviewers })
-        : await gitFinalizeSquashToBranch({ worktreePath: rec.worktreePath, baseBranch, baseRef: diffBaseFor(rec), newBranch: payload.newBranch, message, reviewers, ...(pr ? { pr } : {}) });
+        ? await gitFinalizeAppendToBranch({ worktreePath: rec.worktreePath, branch: payload.newBranch, baseBranch, reviewers, draft })
+        : await gitFinalizeSquashToBranch({ worktreePath: rec.worktreePath, baseBranch, baseRef: diffBaseFor(rec), newBranch: payload.newBranch, message, reviewers, draft, ...(pr ? { pr } : {}) });
       if (!exists) engine.finishPrOpening(sessionId, result.ok ? result.url : undefined);
       // The PR head moved (or a new PR opened) — nudge the watcher so the owning step's
       // controller learns of it without waiting on the hourly sweep.

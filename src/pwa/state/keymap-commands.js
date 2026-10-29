@@ -9,7 +9,7 @@ export const KEYMAP_COMMANDS = [
   { id: 'shell.togglePalette', surface: 'shell', label: 'Toggle command palette', description: 'Open or close the ⌘K palette.', defaultBinding: 'mod+k' },
   { id: 'shell.toggleSidebar', surface: 'shell', label: 'Toggle sidebar', description: 'Collapse or expand the sidebar.', defaultBinding: 'mod+b' },
   { id: 'shell.focusFilter', surface: 'shell', label: 'Focus list filter', description: 'Focus the current list column filter input.', defaultBinding: 'mod+f' },
-  { id: 'shell.jump.cockpit', surface: 'shell', label: 'Jump to Cockpit (WIP)', description: 'Switch to the Cockpit (WIP) surface.', defaultBinding: 'mod+1' },
+  { id: 'shell.jump.cockpit', surface: 'shell', label: 'Jump to Cockpit', description: 'Switch to the Cockpit surface.', defaultBinding: 'mod+1' },
   { id: 'shell.jump.tracked', surface: 'shell', label: 'Jump to Tracked', description: 'Switch to the Tracked surface.', defaultBinding: 'mod+2' },
   { id: 'shell.jump.sessions', surface: 'shell', label: 'Jump to Sessions', description: 'Switch to the Sessions surface.', defaultBinding: 'mod+3' },
   { id: 'shell.jump.schedules', surface: 'shell', label: 'Jump to Schedules', description: 'Switch to the Schedules surface.', defaultBinding: 'mod+4' },
@@ -27,15 +27,17 @@ export const KEYMAP_COMMANDS = [
   { id: 'diff.primaryAction', surface: 'diff', label: 'Run primary action', description: 'Run the diff overlay primary action.', defaultBinding: 'mod+enter' },
   { id: 'diff.regenerate', surface: 'diff', label: 'Regenerate commit message', description: 'Regenerate the drafted commit message.', defaultBinding: 'mod+r' },
   { id: 'diff.comment', surface: 'diff', label: 'Comment on hovered row', description: 'Open a comment on the hovered diff row (when not typing).', defaultBinding: 'c' },
+  { id: 'diff.commentExtend', surface: 'diff', label: 'Extend comment to hovered row', description: 'Extend the open comment draft to a line range ending at the hovered row.', defaultBinding: 'shift+c' },
   { id: 'cockpit.next', surface: 'cockpit', label: 'Next row', description: 'Move the cockpit highlight down.', defaultBinding: 'j' },
   { id: 'cockpit.prev', surface: 'cockpit', label: 'Previous row', description: 'Move the cockpit highlight up.', defaultBinding: 'k' },
   { id: 'cockpit.toggle', surface: 'cockpit', label: 'Expand row', description: 'Open or close the highlighted row.', defaultBinding: 'space' },
   { id: 'cockpit.action', surface: 'cockpit', label: 'Open what needs you', description: 'Open only what the highlighted row is waiting on.', defaultBinding: 'a' },
   { id: 'cockpit.reply', surface: 'cockpit', label: 'Reply', description: 'Focus the open row’s message box.', defaultBinding: 'r' },
-  { id: 'cockpit.archive', surface: 'cockpit', label: 'Archive session', description: 'Archive the highlighted manual session.', defaultBinding: 'e' },
+  { id: 'cockpit.archive', surface: 'cockpit', label: 'Archive / dismiss', description: 'Archive the highlighted session, or dismiss a finished job.', defaultBinding: 'e' },
   { id: 'cockpit.open', surface: 'cockpit', label: 'Open full view', description: 'Open the highlighted row in Tracked or Sessions.', defaultBinding: 'enter' },
   { id: 'cockpit.collapse', surface: 'cockpit', label: 'Collapse', description: 'Leave the message box, or collapse the open row.', defaultBinding: 'escape' },
   { id: 'cockpit.nextNeedsYou', surface: 'cockpit', label: 'Next that needs you', description: 'Jump to the next row waiting on you.', defaultBinding: 'n' },
+  { id: 'cockpit.pin', surface: 'cockpit', label: 'Pin / unpin', description: 'Pin the highlighted row, or unpin it.', defaultBinding: 'p' },
 ];
 
 export const DEFAULT_BINDINGS = Object.fromEntries(

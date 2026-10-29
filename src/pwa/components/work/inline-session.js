@@ -21,7 +21,7 @@ import {
   terminalChipVariant,
 } from './session-terminal-chip.js';
 import { wheelButtonHtml } from './wheel-toggle.js';
-import { decideApproval, openSession } from '../../app-bridge.js';
+import { decideApproval } from '../../app-bridge.js';
 
 function isTerminal(step) { return step ? terminalChipVariant(step) !== null : false; }
 
@@ -73,19 +73,15 @@ function buildSkeleton(mount, { bare = false } = {}) {
   // child's feed and the orchestrator's carry no wheel, so they set nothing.
   const wheelSession = bare ? null : mount.dataset.wheelSession;
   if (wheelSession) mount.classList.add('step-inline-session--wheel');
+  const foot = Array.from(mount.children);
   mount.innerHTML = `
-    ${bare ? '' : `<div class="inline-session-header">
-      <button class="inline-session-open" type="button" aria-label="Open session in its own tab">Open ↗</button>
-    </div>`}
+    ${wheelSession ? `<div class="inline-session-header">${wheelButtonHtml(wheelSession, false)}</div>` : ''}
     <div class="inline-session-body"></div>
-    <div class="inline-session-foot">
-      <div class="inline-session-thinking"></div>
-      ${wheelSession ? wheelButtonHtml(wheelSession, false) : ''}
-    </div>
+    <div class="inline-session-thinking"></div>
   `;
+  mount.append(...foot);
   return {
     root: mount,
-    openBtn: mount.querySelector('.inline-session-open'),
     thinking: mount.querySelector('.inline-session-thinking'),
     body: mount.querySelector('.inline-session-body'),
   };
@@ -93,7 +89,7 @@ function buildSkeleton(mount, { bare = false } = {}) {
 
 // `live` is destructured under another name: the WS-attach flag below is also called `live`,
 // and they are different questions — "is the subprocess alive" vs "have we attached to it".
-export function mountInlineSession(mount, sessionId, { jobId, step = null, live: sessionLive = true, bare = false }) {
+export function mountInlineSession(mount, sessionId, { step = null, live: sessionLive = true, bare = false }) {
   if (!sessionId) return { unmount() {}, updateStep() {} };
 
   sessions.ensureSlice(sessionId);
@@ -113,7 +109,6 @@ export function mountInlineSession(mount, sessionId, { jobId, step = null, live:
   //     which the sessions-list vm treats as running — so a finished step would show
   //     as active purely from being visible in the job timeline.
   // A retry can flip a step back to non-terminal, so syncLive re-runs on updateStep.
-  // (The "Open ↗" button still resumes on explicit user intent.)
   let live = false;
   const syncLive = () => {
     const wantLive = !isTerminal(currentStep);
@@ -121,11 +116,6 @@ export function mountInlineSession(mount, sessionId, { jobId, step = null, live:
     else if (!wantLive && live) { closeSessionWs(sessionId); sessions.unmountView(sessionId); live = false; }
   };
   syncLive();
-
-  dom.openBtn?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    openSession({ id: sessionId, fromTicketId: jobId });
-  });
 
   bindApprovalCardHandlers(dom.body);
   bindAskCardHandlers(dom.body, {

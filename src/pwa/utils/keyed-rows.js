@@ -86,6 +86,43 @@ export function placeKeyedNodes(container, entries) {
   container.__keyedRows = next;
 }
 
+const KEEP_SCROLL = '.sv-transcript, .tl-gate-body, [data-keep-scroll]';
+
+// Without moveBefore a move detaches the node, losing focus, caret and nested scroll — put them back.
+function moveKeepingState(container, node, ref) {
+  const active = document.activeElement;
+  const focused = active && active !== document.body && node.contains(active) ? active : null;
+  const selection = focused && typeof focused.selectionStart === 'number'
+    ? [focused.selectionStart, focused.selectionEnd, focused.selectionDirection] : null;
+  const scrolls = [...node.querySelectorAll(KEEP_SCROLL)].map((el) => [el, el.scrollTop]);
+  if (typeof container.moveBefore === 'function' && node.isConnected && container.isConnected) {
+    try { container.moveBefore(node, ref); } catch { container.insertBefore(node, ref); }
+  } else {
+    container.insertBefore(node, ref);
+  }
+  for (const [el, top] of scrolls) if (top) el.scrollTop = top;
+  if (focused && document.activeElement !== focused) {
+    focused.focus({ preventScroll: true });
+    if (selection) focused.setSelectionRange(...selection);
+  }
+}
+
+// Places every container before sweeping any, so a node moving to an earlier container isn't removed in transit.
+export function placeKeyedGroups(groups, { sweep = true } = {}) {
+  const claimed = new Set(groups.flatMap((g) => g.entries.map((e) => e.node)));
+  for (const { container, entries } of groups) {
+    let cursor = container.firstChild;
+    for (const { node } of entries) {
+      if (node === cursor) cursor = cursor.nextSibling;
+      else moveKeepingState(container, node, cursor);
+    }
+  }
+  if (!sweep) return;
+  for (const { container } of groups) {
+    for (const child of [...container.childNodes]) if (!claimed.has(child)) child.remove();
+  }
+}
+
 // Drop both the DOM and the bookkeeping — for callers that replace the
 // container's contents wholesale (empty states, "loading…"), so the next
 // reconcile starts from a known-empty container rather than re-inserting nodes

@@ -84,9 +84,9 @@ export class PreferencesStore {
     return (this.get() as { improverAutoApply?: unknown }).improverAutoApply === true;
   }
 
-  // Pulling main restarts the daemon with nobody looking, so absent reads as off.
+  // The restart waits out every mid-turn session, so absent reads as on.
   getAutoUpdate(): boolean {
-    return (this.get() as { autoUpdate?: unknown }).autoUpdate === true;
+    return (this.get() as { autoUpdate?: unknown }).autoUpdate !== false;
   }
 
   // Settings-level pre-approvals under every job's own. Anything unparseable reads as gated.

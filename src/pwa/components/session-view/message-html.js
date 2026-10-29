@@ -16,6 +16,7 @@ import {
 } from '../tool-use-tile.js';
 import { askMsgHtml } from '../ask-flow.js';
 import { isDiffReviewMessage, parseDiffReviewMessage } from '../diff-review-format.js';
+import { splitAttachedFiles } from '../../utils/attachments.js';
 
 const ROLE_LABELS = { user: 'You', assistant: 'Assistant', error: 'Error', archived: 'Archived' };
 const SHELL_TOOLS = new Set(['Bash', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'Skill', 'ToolSearch']);
@@ -85,13 +86,16 @@ function diffReviewTileHtml(text) {
   const comments = parseDiffReviewMessage(text) ?? [];
   const count = comments.length;
   const items = comments.map((c) => {
+    const lines = c.startLine ? `${c.startLine}–${c.line}` : c.line;
     const cite = c.file
-      ? `<div class="dr-cite"><span class="dr-cite-mark">§</span><span class="dr-cite-file">${escapeHtml(c.file)}</span><span class="dr-cite-sep">→</span><span class="dr-cite-line">L${escapeHtml(c.line)}</span></div>`
+      ? `<div class="dr-cite"><span class="dr-cite-mark">§</span><span class="dr-cite-file">${escapeHtml(c.file)}</span><span class="dr-cite-sep">→</span><span class="dr-cite-line">L${escapeHtml(lines)}</span></div>`
       : '';
-    const lineCls = c.mark === '-' ? 'diff-del' : 'diff-add';
-    const line = c.quote
-      ? `<div class="dr-line diff-line ${lineCls}"><span class="diff-mark">${escapeHtml(c.mark || '+')}</span><span class="diff-text">${escapeHtml(c.quote)}</span></div>`
-      : '';
+    let line = '';
+    if (c.startLine) {
+      line = `<div class="dr-quote">${c.quoteLines.map((q) => quotedLineHtml(q.mark, q.text)).join('')}</div>`;
+    } else if (c.quote) {
+      line = quotedLineHtml(c.mark || '+', c.quote);
+    }
     const note = c.note ? `<div class="dr-note">${escapeHtml(c.note)}</div>` : '';
     return `<li class="dr-item">${cite}${line}${note}</li>`;
   }).join('');
@@ -99,6 +103,12 @@ function diffReviewTileHtml(text) {
     <div class="dr-head"><span class="dr-eyebrow">Review</span><span class="dr-meta">${count} comment${count === 1 ? '' : 's'}</span></div>
     <ol class="dr-list">${items}</ol>
   </div>`;
+}
+
+function quotedLineHtml(mark, text) {
+  if (mark === '…') return `<div class="dr-quote-more">… ${escapeHtml(text)}</div>`;
+  const cls = mark === '-' ? ' diff-del' : mark === '+' ? ' diff-add' : ' diff-eq';
+  return `<div class="dr-line diff-line${cls}"><span class="diff-mark">${escapeHtml(mark)}</span><span class="diff-text">${escapeHtml(text)}</span></div>`;
 }
 
 function truncate(s, max) {
@@ -168,9 +178,12 @@ export function minimalMsgHtml(m, expandedTools, ctx) {
   }
 
   let text = m.text ?? '';
+  let attachments = '';
   if (m.role === 'user' && typeof text === 'string') {
-    text = stripCommandScaffolding(text);
-    if (!text) return '';
+    const split = splitAttachedFiles(stripCommandScaffolding(text));
+    text = split.text;
+    attachments = userAttachmentsHtml(m, split.files);
+    if (!text && !attachments) return '';
     if (isDiffReviewMessage(text)) return diffReviewTileHtml(text);
   }
 
@@ -180,5 +193,23 @@ export function minimalMsgHtml(m, expandedTools, ctx) {
     ? `<button class="msg-action" type="button" data-msg-action="reopen">Reopen</button>`
     : '';
   const pending = m.__pending ? ' is-pending' : '';
-  return `<div class="msg ${escapeHtml(m.role)}${pending}"><span class="role">${escapeHtml(label)}</span><span class="body-text">${body}</span>${action}</div>`;
+  return `<div class="msg ${escapeHtml(m.role)}${pending}"><span class="role">${escapeHtml(label)}</span><span class="body-text">${attachments}${body}</span>${action}</div>`;
+}
+
+const PREVIEW_URL = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/;
+
+// Live entries carry this device's thumbnails; one rebuilt from disk has only a photo count
+function userAttachmentsHtml(m, savedFiles) {
+  const items = [];
+  const live = Array.isArray(m.attachments) ? m.attachments : [];
+  for (const a of live) {
+    if (a.kind === 'image' && typeof a.preview === 'string' && PREVIEW_URL.test(a.preview)) {
+      items.push(`<img class="msg-attachment-thumb" src="${escapeHtml(a.preview)}" alt="${escapeHtml(a.name ?? 'photo')}">`);
+    }
+  }
+  const photos = m.images ?? 0;
+  if (photos > 0) items.push(`<span class="msg-attachment-chip">📷 ${photos} photo${photos === 1 ? '' : 's'}</span>`);
+  const files = [...live.filter((a) => a.kind === 'file'), ...savedFiles];
+  for (const f of files) items.push(`<span class="msg-attachment-chip">📄 ${escapeHtml(f.name ?? 'file')}</span>`);
+  return items.length ? `<span class="msg-attachments">${items.join('')}</span>` : '';
 }

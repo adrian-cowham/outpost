@@ -158,7 +158,16 @@ export function migrateJob(job: JobRecord): JobRecord {
   const steps: Step[] = job.steps.some(isLegacyOpenPr)
     ? job.steps.map((s) => isLegacyOpenPr(s) ? migrateOpenPrStep(s as unknown as Record<string, unknown>) : s)
     : job.steps;
-  return migrateSpecGate(steps === job.steps ? job : { ...job, steps });
+  return migrateDismissal(migrateSpecGate(steps === job.steps ? job : { ...job, steps }));
+}
+
+// One-shot: jobs that finished before dismissal existed must not flood the cockpit.
+function migrateDismissal(job: JobRecord): JobRecord {
+  if (job.dismissMigrated) return job;
+  const finished = job.state === 'done' || job.state === 'failed';
+  return finished && job.dismissedAt === undefined
+    ? { ...job, dismissedAt: job.updatedAt, dismissMigrated: true }
+    : { ...job, dismissMigrated: true };
 }
 
 // One-shot: a step whose spec was rewritten after the cutover must be re-gated, not re-stamped.

@@ -267,6 +267,8 @@ export interface PrFacts {
   // of the call and at boot, so a request that didn't survive a restart can't silence the
   // watcher for the rest of the step's life.
   isOpeningPr?: boolean;
+  // Read off the step's worktree, not GitHub: edits or commits origin doesn't have yet
+  hasUnpushedWork?: boolean;
   comments?: PrComment[];
   threadHash?: string;
 }
@@ -462,6 +464,9 @@ export interface JobRecord {
   preapprovals?: Preapprovals;
   planReview?: 'gate' | 'auto';
   specGateMigrated?: true;
+  // A done/failed job stays on the cockpit until this is set; cleared if the job leaves done/failed.
+  dismissedAt?: number;
+  dismissMigrated?: true;
   failure?: { reason: string; at: number };
   stalls?: SessionStall[];
   events?: JobEvent[];

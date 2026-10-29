@@ -141,7 +141,10 @@ function idleText(j, feeds) {
   if (!planIsLive(j)) return j.orchestratorSessionId ? 'Planning' : 'Not launched';
   const step = (j.steps ?? []).find((s) => !s.cancelled && !isTerminalStep(s));
   if (!step) return 'Waiting';
-  if (step.type !== 'orchestrated') return step.state === 'waiting' ? 'Soaking' : 'Queued';
+  if (step.type !== 'orchestrated') {
+    if (step.state !== 'waiting') return 'Queued';
+    return step.action === 'meta.session' ? 'Your session' : 'Soaking';
+  }
   const line = orchestratedRows(step).statusLine ?? 'Waiting';
   const pr = prNumber(step.pr?.prUrl);
   return pr ? `PR #${pr} · ${line}` : line;
@@ -151,21 +154,27 @@ function jobRow(j, pendingApprovals, openingWaits) {
   const actions = jobActions(j, pendingApprovals, openingWaits);
   const feeds = jobFeeds(j);
   const onlyFailed = actions.length > 0 && actions.every((a) => a.kind === 'failed');
+  const finished = j.state === 'done' || j.state === 'failed';
   let tone;
   if (j.state === 'failed') tone = 'failed';
   else if (feeds.length) tone = 'live';
   else if (onlyFailed) tone = 'failed';
   else if (actions.length) tone = 'you';
   else tone = planIsLive(j) ? 'parked' : 'idle';
-  const status = actions.length
-    ? { text: actionsText(actions, j), tone: onlyFailed ? 'failed' : 'you' }
-    : { text: idleText(j, feeds), tone: feeds.length ? 'live' : 'mute' };
+  if (j.state === 'done') tone = 'done';
+  let status;
+  if (j.state === 'done') status = { text: 'Done', tone: 'mute' };
+  else if (actions.length) status = { text: actionsText(actions, j), tone: onlyFailed ? 'failed' : 'you' };
+  else status = { text: idleText(j, feeds), tone: feeds.length ? 'live' : 'mute' };
   return {
     key: `job:${j.id}`, kind: 'job', id: j.id,
     ref: j.externalRef?.issueIdentifier ?? null, refMono: true, kindLabel: null,
     title: j.title ?? '(untitled job)', tone, status, time: j.updatedAt ?? 0,
     actions, actionLabel: actionLabel(actions), feeds,
-    engagedAt: j.lastEngagedAt ?? j.createdAt ?? 0, createdAt: j.createdAt ?? 0, cwd: null, inboxItem: null,
+    dismissable: finished,
+    // A finished job is never touched again, so its last write is when it finished.
+    engagedAt: Math.max(j.lastEngagedAt ?? j.createdAt ?? 0, finished ? (j.updatedAt ?? 0) : 0),
+    createdAt: j.createdAt ?? 0, cwd: null, inboxItem: null,
   };
 }
 
@@ -216,11 +225,11 @@ const byTime = (a, b) => b.time - a.time;
 export function cockpitBoard({
   jobs = [], projects = [], slices = new Map(), pendingApprovals = [], localEngaged = new Map(),
   actionEdits = [], scheduleDrafts = new Map(), runs = [], autoApplied = [], openingWaits = new Set(),
-  now = Date.now(),
+  launched = new Set(), now = Date.now(),
 } = {}) {
   const started = [], notStarted = [], backlog = [];
   for (const j of jobs) {
-    if (j.state === 'done' || j.state === 'abandoned') continue;
+    if (j.state === 'abandoned' || j.dismissedAt != null) continue;
     const row = jobRow(j, pendingApprovals, openingWaits);
     if (planIsLive(j)) started.push(row);
     else if (isBacklog(j)) backlog.push(row);
@@ -232,6 +241,11 @@ export function cockpitBoard({
       if (s.archived || s.sessionClass === 'action' || (s.kind && s.kind !== 'normal')) continue;
       sessions.push(sessionRow(s, p.cwd, slices.get(s.id), pendingApprovals, localEngaged));
     }
+  }
+  for (const id of launched) {
+    if (sessions.some((r) => r.id === id)) continue;
+    const slice = slices.get(id);
+    sessions.push(sessionRow({ id, title: slice?.title, lastModified: now }, slice?.cwd, slice, pendingApprovals, localEngaged));
   }
   const inbox = cockpitInbox({ actionEdits, scheduleDrafts, runs, autoApplied, now });
   const other = [...inbox.decide, ...inbox.broken].filter((i) => OTHER_KINDS.has(i.kind)).map(otherRow);
@@ -259,9 +273,11 @@ export function cockpitBoard({
 export function stabilizeOrder(prevKeys, keys, pinned) {
   if (!prevKeys || !pinned.size) return keys;
   const present = new Set(keys);
+  // Slots count only surviving rows, so a removal above a held row shifts it up instead of backfilling
   const held = prevKeys
+    .filter((k) => present.has(k))
     .map((k, i) => [k, i])
-    .filter(([k]) => pinned.has(k) && present.has(k));
+    .filter(([k]) => pinned.has(k));
   const heldKeys = new Set(held.map(([k]) => k));
   const out = keys.filter((k) => !heldKeys.has(k));
   for (const [k, i] of held) out.splice(Math.min(i, out.length), 0, k);
@@ -274,5 +290,7 @@ export function sessionsShownInBody(row, mode) {
   if (row.kind === 'job' && mode === 'action') {
     return row.actions.filter((a) => a.kind === 'driven').map((a) => a.sessionId);
   }
+  // The caret body's step card carries the step's own feeds; only the planner's stays on the row.
+  if (row.kind === 'job') return row.feeds.filter((f) => f.stepId).map((f) => f.sessionId);
   return [];
 }

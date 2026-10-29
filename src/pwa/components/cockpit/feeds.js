@@ -11,7 +11,7 @@ function whoHtml(f) {
 }
 
 // Keyed by sessionId so a feed that stays live keeps its mount (and its WS) across repaints.
-export function syncFeeds(container, feeds, { jobId = null } = {}) {
+export function syncFeeds(container, feeds) {
   const prev = container.__feeds ?? new Map();
   const next = new Map();
   for (const f of feeds) {
@@ -20,7 +20,7 @@ export function syncFeeds(container, feeds, { jobId = null } = {}) {
       const el = document.createElement('div');
       el.className = 'ckb-feed';
       el.innerHTML = '<div class="ckb-feed-who"></div><div class="ckb-feed-mount"></div>';
-      const handle = mountInlineSession(el.querySelector('.ckb-feed-mount'), f.sessionId, { jobId, live: true, bare: true });
+      const handle = mountInlineSession(el.querySelector('.ckb-feed-mount'), f.sessionId, { live: true, bare: true });
       entry = { el, handle, who: null };
     }
     const who = whoHtml(f);

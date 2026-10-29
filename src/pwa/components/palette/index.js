@@ -33,6 +33,8 @@ import { sendUserMessage, sessionWsReadyState } from '../session-view/session-ws
 import { openAddProjectSheet } from '../cwd-picker.js';
 import { registerBackHandler } from '../mobile-shell/history.js';
 import { escapeHtml } from '../../util.js';
+import { isDesktop } from '../../layout/index.js';
+import { openNewSessionInCockpit } from '../cockpit/launches.js';
 import { clearPreapprovalsScope, readPreapprovalsControl, renderPreapprovalsControl, wirePreapprovalsControl } from '../work/preapprovals-control.js';
 
 const RECENT_LIMIT = 5;
@@ -828,7 +830,8 @@ function deriveTitle(prompt, cwd) {
 // is exactly what shell/list-sessions.js's "New session" row already does: the
 // sessions surface's renderDetail reads the hint on mount and calls
 // mountSessionView, which opens the WS with the spawn hints. No fork, no
-// app-bridge callback needed — this file just calls the same public API.
+// app-bridge callback needed — this file just calls the same public API. From the
+// desktop cockpit the session opens inline on the board instead.
 async function launchSession() {
   if (!selectedCwd || submitting) return;
   submitting = true;
@@ -847,7 +850,8 @@ async function launchSession() {
       approvalMode: defaultApprovalMode !== 'ask' ? defaultApprovalMode : undefined,
       title: deriveTitle(prompt, cwd),
     });
-    nav.select('sessions', id);
+    if (isDesktop() && nav.get().surface === 'cockpit') openNewSessionInCockpit(id);
+    else nav.select('sessions', id);
     closePalette();
     if (prompt) {
       // Mirror the composer's send(): a brand-new session skips openSession's

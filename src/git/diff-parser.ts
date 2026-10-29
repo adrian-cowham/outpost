@@ -33,7 +33,8 @@ export interface DiffFile {
 
 const MAX_ROWS_PER_FILE = 5000;
 
-export function parseUnifiedDiff(text: string): DiffFile[] {
+export function parseUnifiedDiff(text: string, opts: { maxRowsPerFile?: number } = {}): DiffFile[] {
+  const maxRows = opts.maxRowsPerFile ?? MAX_ROWS_PER_FILE;
   const lines = text.split('\n');
   const files: DiffFile[] = [];
   let i = 0;
@@ -83,7 +84,7 @@ export function parseUnifiedDiff(text: string): DiffFile[] {
           // Blank line outside a hunk body (trailing newline split artifact) — stop this hunk.
           break;
         }
-        if (rowCount >= MAX_ROWS_PER_FILE) { truncated = true; continue; }
+        if (rowCount >= maxRows) { truncated = true; continue; }
         const op = raw[0];
         const content = raw.slice(1);
         if (op === ' ') {

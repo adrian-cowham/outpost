@@ -47,6 +47,7 @@ import { loadEnvFile } from './env-file.js';
 import { parseJsonObject } from './routes/util.js';
 import { parseDraftCalls, draftNotificationTag, type DraftRaisedBy } from './work/write-draft.js';
 import { handleNotificationsMessage, handleSessionMessage } from './ws/client-messages.js';
+import { uploadsRootFor } from './session/attachments.js';
 import { registerGitRoutes } from './routes/git.js';
 import { registerJobsRoutes } from './routes/jobs.js';
 import { registerSessionsRoutes } from './routes/sessions.js';
@@ -401,12 +402,13 @@ async function main() {
       scheduleSessionsChangedBroadcast();
     },
     onAuthFailure: (sessionId, message) => noteAuthFailure(sessionId, message),
-    onSessionExit: (sessionId, code) => {
+    onSessionExit: (sessionId, code, exit) => {
       // Session-scoped allow rules die with the session's process.
       allowlist.clearSession(sessionId);
       // A crash / idle-reap fires no Stop hook, so the Stop-handler slot release never runs —
       // free any governor slot this session held here too (idempotent; a plain active.delete).
       engine.releaseLaunchSlot(sessionId);
+      engine.onSessionExit(sessionId, code, exit);
       // Scheduler has no visibility into session completion on its own; a schedule-spawned
       // skill session (see createSpawnDeps.spawnSkillSession) finishing is exactly this event.
       // No-op (via findRunByRef) for any session the scheduler didn't spawn.
@@ -626,7 +628,9 @@ async function main() {
     fire: (id) => scheduler.fireTokenOpportunistic(id),
   });
 
-  const prWatcher = new PrWatcher({ queue: jobQueue, engine });
+  const prWatcher = new PrWatcher({
+    queue: jobQueue, engine, unpushedWork: (stepId) => engine.readUnpushedWork(stepId),
+  });
   const prFilePatches = new PrFilePatches();
   const userPrsWatcher = new UserPrsWatcher({
     statePath: join(RUNTIME_DIR, 'user-prs.json'),
@@ -640,7 +644,11 @@ async function main() {
     mcpConfigPath,
     notify: (payload) => { void pushSender.send(payload); },
   }).runOnce());
-  nativeHandlers.register('pr-watcher', () => prWatcher.runOnce());
+  nativeHandlers.register('pr-watcher', async () => {
+    const result = await prWatcher.runOnce();
+    engine.redeliverParked();
+    return result;
+  });
   nativeHandlers.register('user-prs-watcher', () => userPrsWatcher.runOnce());
   const reviewIntake = new ReviewIntake({
     settings: () => preferencesStore.getPrReviewIntake(),
@@ -1513,6 +1521,8 @@ async function main() {
       try {
         handleSessionMessage(raw, sessionId, {
           queue, manager, modes, shell: sessionShell, log: (l) => console.log(l),
+          uploadsRoot: uploadsRootFor(RUNTIME_DIR),
+          reply: (m) => ws.send(JSON.stringify(m)),
           onUserMessage: (id) => { const jobId = engine.jobIdForSession(id); if (jobId) engine.markEngaged(jobId); },
         });
       } catch (e) {
@@ -1603,17 +1613,15 @@ async function main() {
   // through HTTP routes that are registered regardless of Linear integration.
   engine.rehydrateSessionBindings();
 
-  if (process.env.LINEAR_API_TOKEN) {
-    // Actions are already seeded + loaded at startup (see the registry construction above).
-    console.log(`[work] actions available: ${loadedActionCount}`);
-    engine.reconcileInterruptedSteps();
-    engine.reconcileWaits();
-    engine.reconcilePendingLaunches();
-    void engine.tick();
-    const n = jobQueue.list().length;
-    console.log(`[work] orchestrator started (queue: ${n} ticket${n === 1 ? '' : 's'})`);
-  } else {
-    console.log('[work] LINEAR_API_TOKEN missing from ~/.outpost/.env — work orchestrator disabled');
+  console.log(`[work] actions available: ${loadedActionCount}`);
+  engine.reconcileInterruptedSteps();
+  engine.reconcileWaits();
+  engine.reconcilePendingLaunches();
+  void engine.tick();
+  const queued = jobQueue.list().length;
+  console.log(`[work] orchestrator started (queue: ${queued} job${queued === 1 ? '' : 's'})`);
+  if (!process.env.LINEAR_API_TOKEN) {
+    console.log('[work] LINEAR_API_TOKEN missing from ~/.outpost/.env — Linear intake disabled');
   }
 
   // Reclaim worktrees whose owner is gone: a job that finished before organic completion
